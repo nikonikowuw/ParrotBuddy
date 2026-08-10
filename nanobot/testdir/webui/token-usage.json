@@ -1,0 +1,81 @@
+{
+  "days": {
+    "2026-07-25": {
+      "cached_tokens": 295424,
+      "completion_tokens": 8523,
+      "date": "2026-07-25",
+      "estimated_requests": 0,
+      "estimated_tokens": 0,
+      "prompt_tokens": 447834,
+      "provider_requests": 31,
+      "provider_tokens": 456357,
+      "requests": 31,
+      "sources": {
+        "user": {
+          "cached_tokens": 295424,
+          "completion_tokens": 8523,
+          "estimated_requests": 0,
+          "estimated_tokens": 0,
+          "prompt_tokens": 447834,
+          "provider_requests": 31,
+          "provider_tokens": 456357,
+          "requests": 31,
+          "total_tokens": 456357
+        }
+      },
+      "total_tokens": 456357
+    },
+    "2026-07-26": {
+      "cached_tokens": 248448,
+      "completion_tokens": 4665,
+      "date": "2026-07-26",
+      "estimated_requests": 0,
+      "estimated_tokens": 0,
+      "prompt_tokens": 430949,
+      "provider_requests": 14,
+      "provider_tokens": 435614,
+      "requests": 14,
+      "sources": {
+        "user": {
+          "cached_tokens": 248448,
+          "completion_tokens": 4665,
+          "estimated_requests": 0,
+          "estimated_tokens": 0,
+          "prompt_tokens": 430949,
+          "provider_requests": 14,
+          "provider_tokens": 435614,
+          "requests": 14,
+          "total_tokens": 435614
+        }
+      },
+      "total_tokens": 435614
+    },
+    "2026-08-06": {
+      "cached_tokens": 590336,
+      "completion_tokens": 30647,
+      "date": "2026-08-06",
+      "estimated_requests": 0,
+      "estimated_tokens": 0,
+      "prompt_tokens": 700612,
+      "provider_requests": 30,
+      "provider_tokens": 731259,
+      "requests": 30,
+      "sources": {
+        "user": {
+          "cached_tokens": 590336,
+          "completion_tokens": 30647,
+          "estimated_requests": 0,
+          "estimated_tokens": 0,
+          "prompt_tokens": 700612,
+          "provider_requests": 30,
+          "provider_tokens": 731259,
+          "requests": 30,
+          "total_tokens": 731259
+        }
+      },
+      "total_tokens": 731259
+    }
+  },
+  "schema_version": 1,
+  "updated_at": "2026-08-06T09:23:46Z"
+}
