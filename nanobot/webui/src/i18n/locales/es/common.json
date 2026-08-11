@@ -55,6 +55,8 @@
       "ariaLabel": "Cambiar idioma"
     },
     "apps": "Apps",
+    "documents": "Documentos",
+    "knowledgeGraph": "Grafo de conocimiento",
     "automations": "Automatizaciones",
     "skills": {
       "title": "Habilidades"
@@ -1181,5 +1183,14 @@
       "usePath": "Usar ruta",
       "absolutePathRequired": "Introduce una ruta absoluta de carpeta en esta máquina."
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }

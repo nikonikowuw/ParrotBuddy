@@ -1,13 +1,15 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
+  Blocks,
   Brain,
   CalendarClock,
+  FileText,
   Menu,
+  Network,
   Search,
   Settings,
   SquarePen,
-  Blocks,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -39,7 +41,17 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | null;
+  onOpenDocuments: () => void;
+  onOpenKnowledgeGraph: () => void;
+  /** Show the LightRAG Documents / Knowledge Graph entries (requires a configured server). */
+  showLightragEntries?: boolean;
+  activeUtility?:
+    | "apps"
+    | "skills"
+    | "automations"
+    | "documents"
+    | "knowledge-graph"
+    | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -154,6 +166,24 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSearch}
           icon={<Search className="h-4 w-4" />}
         />
+        {props.showLightragEntries ? (
+          <>
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.documents")}
+              onClick={props.onOpenDocuments}
+              active={props.activeUtility === "documents"}
+              icon={<FileText className="h-4 w-4" />}
+            />
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.knowledgeGraph")}
+              onClick={props.onOpenKnowledgeGraph}
+              active={props.activeUtility === "knowledge-graph"}
+              icon={<Network className="h-4 w-4" />}
+            />
+          </>
+        ) : null}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.apps")}

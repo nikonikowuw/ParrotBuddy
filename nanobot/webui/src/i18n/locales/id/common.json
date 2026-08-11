@@ -55,6 +55,8 @@
       "ariaLabel": "Ganti bahasa"
     },
     "apps": "Aplikasi",
+    "documents": "Dokumen",
+    "knowledgeGraph": "Graf pengetahuan",
     "automations": "Otomasi",
     "skills": {
       "title": "Skill"
@@ -1181,5 +1183,14 @@
       "usePath": "Gunakan path",
       "absolutePathRequired": "Masukkan path folder absolut di mesin ini."
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }

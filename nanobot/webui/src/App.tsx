@@ -12,6 +12,7 @@ import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { SessionSearchDialog } from "@/components/SessionSearchDialog";
+import { LightRagEmbeddedView, type LightRagEmbeddedTab } from "@/components/lightrag/LightRagEmbeddedView";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -87,7 +88,8 @@ const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 const PAIRING_DISMISS_SNOOZE_MS = 30_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills";
+type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "documents" | "knowledge-graph";
+type LightRagView = "documents" | "knowledge-graph";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -289,6 +291,12 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/skills") {
     return { view: "skills", activeKey, settingsSection: "skills" };
+  }
+  if (path === "/documents") {
+    return { view: "documents", activeKey, settingsSection: "overview" };
+  }
+  if (path === "/knowledge-graph") {
+    return { view: "knowledge-graph", activeKey, settingsSection: "overview" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -1741,6 +1749,21 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenLightRag = useCallback(
+    (view: LightRagView) => {
+      setSessionSearchOpen(false);
+      navigate({ view, activeKey, settingsSection: "overview" });
+      setMobileSidebarOpen(false);
+    },
+    [activeKey, navigate],
+  );
+
+  const onOpenDocuments = useCallback(() => onOpenLightRag("documents"), [onOpenLightRag]);
+  const onOpenKnowledgeGraph = useCallback(
+    () => onOpenLightRag("knowledge-graph"),
+    [onOpenLightRag],
+  );
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1968,6 +1991,18 @@ function Shell({
       });
       return;
     }
+    if (view === "documents") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.documents", { defaultValue: "Documents" }),
+      });
+      return;
+    }
+    if (view === "knowledge-graph") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.knowledgeGraph", { defaultValue: "Knowledge Graph" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1990,8 +2025,18 @@ function Shell({
     onOpenApps,
     onOpenAutomations,
     onOpenSkills,
+    onOpenDocuments,
+    onOpenKnowledgeGraph,
+    showLightragEntries: (settingsSnapshot?.lightrag?.servers?.length ?? 0) > 0,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" || view === "automations" || view === "skills" ? view : null,
+    activeUtility:
+      view === "apps" ||
+      view === "automations" ||
+      view === "skills" ||
+      view === "documents" ||
+      view === "knowledge-graph"
+        ? view
+        : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -2180,7 +2225,18 @@ function Shell({
                 skills={skills}
               />
             </div>
-            {view !== "chat" && (
+            {(view === "documents" || view === "knowledge-graph") && (
+              <div className="absolute inset-0 flex flex-col">
+                <LightRagEmbeddedView
+                  settings={settingsSnapshot}
+                  tab={view as LightRagEmbeddedTab}
+                  theme={theme}
+                />
+              </div>
+            )}
+            {view !== "chat" &&
+              view !== "documents" &&
+              view !== "knowledge-graph" && (
               <div className="absolute inset-0 flex flex-col">
                 <SettingsView
                   theme={theme}

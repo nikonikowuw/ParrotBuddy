@@ -55,6 +55,8 @@
       "ariaLabel": "언어 변경"
     },
     "apps": "앱",
+    "documents": "문서",
+    "knowledgeGraph": "지식 그래프",
     "automations": "자동화",
     "skills": {
       "title": "스킬"
@@ -1181,5 +1183,14 @@
       "usePath": "경로 사용",
       "absolutePathRequired": "이 머신의 절대 폴더 경로를 입력하세요."
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }

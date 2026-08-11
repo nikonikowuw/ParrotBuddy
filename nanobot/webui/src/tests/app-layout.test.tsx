@@ -2212,6 +2212,93 @@ describe("App layout", () => {
     expect(within(sidebar).getByText("Existing chat")).toBeInTheDocument();
   });
 
+  function lightragSettingsPayload() {
+    return {
+      ...baseSettingsPayload(),
+      lightrag: {
+        enabled: true,
+        servers: [
+          {
+            name: "docs",
+            api_base: "http://127.0.0.1:9621",
+            api_key_hint: null,
+            default_query_mode: "mix",
+            default_top_k: null,
+            timeout: 60,
+            proxy: null,
+            include_references: true,
+            include_chunk_content: false,
+          },
+          {
+            name: "prod",
+            api_base: "https://rag.example.com",
+            api_key_hint: "sk-…",
+            default_query_mode: "hybrid",
+            default_top_k: 20,
+            timeout: 60,
+            proxy: null,
+            include_references: true,
+            include_chunk_content: false,
+          },
+        ],
+        default_workspace: "docs",
+      },
+    };
+  }
+
+  it("hides LightRAG sidebar entries until a server is configured", async () => {
+    mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    expect(within(sidebar).queryByRole("button", { name: "Documents" })).not.toBeInTheDocument();
+    expect(
+      within(sidebar).queryByRole("button", { name: "Knowledge Graph" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens Documents from the main sidebar and embeds the LightRAG webui", async () => {
+    mockFetchRoutes({ "/api/settings": lightragSettingsPayload() });
+    localStorage.removeItem("nanobot-webui.lightrag-embedded-server");
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    expect(within(sidebar).getByRole("button", { name: "Knowledge Graph" })).toBeInTheDocument();
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+
+    const frame = await screen.findByTitle("docs — LightRAG");
+    expect(frame).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light",
+    );
+    expect(within(sidebar).getByRole("button", { name: "Documents" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.title).toBe("Documents · nanobot");
+  });
+
+  it("switches the embedded frame between Documents and Knowledge Graph", async () => {
+    mockFetchRoutes({ "/api/settings": lightragSettingsPayload() });
+    localStorage.removeItem("nanobot-webui.lightrag-embedded-server");
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+    const docsFrame = await screen.findByTitle("docs — LightRAG");
+    expect(docsFrame).toHaveAttribute("src", expect.stringContaining("tab=documents"));
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Knowledge Graph" }));
+    const kgFrame = await screen.findByTitle("docs — LightRAG");
+    expect(kgFrame).toHaveAttribute("src", expect.stringContaining("tab=knowledge-graph"));
+    expect(within(sidebar).getByRole("button", { name: "Knowledge Graph" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("refreshes the bootstrap token before REST settings auth expires", async () => {
     vi.useFakeTimers();
     vi.mocked(fetchBootstrap)

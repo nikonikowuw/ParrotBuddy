@@ -55,6 +55,8 @@
       "ariaLabel": "Đổi ngôn ngữ"
     },
     "apps": "Ứng dụng",
+    "documents": "Tài liệu",
+    "knowledgeGraph": "Đồ thị tri thức",
     "automations": "Tự động hóa",
     "skills": {
       "title": "Kỹ năng"
@@ -1181,5 +1183,14 @@
       "usePath": "Dùng đường dẫn",
       "absolutePathRequired": "Nhập đường dẫn thư mục tuyệt đối trên máy này."
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }

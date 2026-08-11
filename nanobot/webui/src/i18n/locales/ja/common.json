@@ -55,6 +55,8 @@
       "ariaLabel": "言語を変更"
     },
     "apps": "アプリ",
+    "documents": "ドキュメント",
+    "knowledgeGraph": "ナレッジグラフ",
     "automations": "自動タスク",
     "skills": {
       "title": "スキル"
@@ -1181,5 +1183,14 @@
       "usePath": "パスを使用",
       "absolutePathRequired": "このマシン上の絶対フォルダーパスを入力してください。"
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }

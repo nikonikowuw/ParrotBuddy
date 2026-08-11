@@ -55,6 +55,8 @@
       "ariaLabel": "切換語言"
     },
     "apps": "應用",
+    "documents": "文件",
+    "knowledgeGraph": "知識圖譜",
     "automations": "自動任務",
     "skills": {
       "title": "技能"
@@ -1181,5 +1183,14 @@
       "usePath": "使用路徑",
       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
     }
+  },
+  "lightragEmbedded": {
+    "noServer": "No LightRAG server is configured. Add one in Settings → LightRAG.",
+    "serverLabel": "LightRAG server",
+    "loading": "Loading…",
+    "reload": "Reload",
+    "openExternal": "Open in new tab",
+    "retry": "Retry",
+    "timedOut": "Still loading… The server may be unreachable or block embedding."
   }
 }
