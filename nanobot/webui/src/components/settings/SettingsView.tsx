@@ -8830,7 +8830,8 @@ function LightRagSettings({
             <ToggleButton
               checked={enabled}
               onChange={toggleEnabled}
-              label={tx("settings.lightrag.enable", "Enable")}
+              ariaLabel={tx("settings.lightrag.enable", "Enable Knowledge Base Integration")}
+              label={tx("settings.lightrag.enableLabel", "Enable")}
             />
           </SettingsRow>
         </SettingsGroup>
@@ -8935,7 +8936,7 @@ function LightRagSettings({
                             max={100}
                             value={server.default_top_k}
                             onChange={(e) => updateServer(index, "default_top_k", e.target.value)}
-                            placeholder="Server default"
+                            placeholder={tx("settings.lightrag.defaultTopKPlaceholder", "Server default")}
                             className="h-8 w-[min(180px,40vw)] rounded-full text-[13px]"
                           />
                         </SettingsRow>
@@ -8960,14 +8961,16 @@ function LightRagSettings({
                           <ToggleButton
                             checked={server.include_references}
                             onChange={(value) => updateServerBoolean(index, "include_references", value)}
-                            label={tx("settings.lightrag.includeReferences", "References")}
+                            ariaLabel={tx("settings.lightrag.includeReferences", "Include references")}
+                            label={tx("settings.lightrag.includeReferencesLabel", "References")}
                           />
                         </SettingsRow>
                         <SettingsRow title={tx("settings.lightrag.includeChunkContent", "Include chunk content")}>
                           <ToggleButton
                             checked={server.include_chunk_content}
                             onChange={(value) => updateServerBoolean(index, "include_chunk_content", value)}
-                            label={tx("settings.lightrag.includeChunkContent", "Chunk content")}
+                            ariaLabel={tx("settings.lightrag.includeChunkContent", "Include chunk content")}
+                            label={tx("settings.lightrag.includeChunkContentLabel", "Chunk content")}
                           />
                         </SettingsRow>
                         <div className="flex items-center justify-end gap-2 border-t border-border/45 px-4 py-3 sm:px-5">
