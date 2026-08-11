@@ -1,0 +1,13 @@
+GEMINI.md
+.pi
+.codex
+.trellis
+.DB_Store
+.pi-subagents
+.vite
+
+# LightRAG webui dependencies (symlinks into a shared store)
+LightRAG/lightrag_webui/node_modules/
+
+# Local env backups (may contain real credentials)
+LightRAG/.env.bak*
