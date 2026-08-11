@@ -22,7 +22,7 @@ import type {
 const EMPTY_MESSAGES: UIMessage[] = [];
 const INITIAL_HISTORY_PAGE_LIMIT = 160;
 const OLDER_HISTORY_PAGE_LIMIT = 120;
-const CHAT_CREATE_TIMEOUT_MS = 60_000;
+const CHAT_CREATE_TIMEOUT_MS = 8_000;
 
 function persistedMessagesToUi(messages: UIMessage[]): UIMessage[] {
   return messages.map((m, idx) => ({
@@ -62,12 +62,20 @@ export function useSessions(): {
   const [error, setError] = useState<string | null>(null);
   const tokenRef = useRef(token);
   const optimisticKeysRef = useRef<Set<string>>(new Set());
+  /** Monotonic id of the latest ``refresh`` invocation; stale responses are dropped. */
+  const refreshSeqRef = useRef(0);
   tokenRef.current = token;
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeqRef.current;
     try {
       setLoading(true);
       const rows = await listSessions(tokenRef.current);
+      // Drop stale responses: overlapping refreshes (triggered by the
+      // websocket's session_updated events) can resolve out of order. A stale
+      // list that predates a just-created chat would evict the optimistic row
+      // and strand the hero composer's booting state.
+      if (seq !== refreshSeqRef.current) return;
       const serverKeys = new Set(rows.map((row) => row.key));
       setSessions((prev) => [
         ...rows,
@@ -82,11 +90,12 @@ export function useSessions(): {
       }
       setError(null);
     } catch (e) {
+      if (seq !== refreshSeqRef.current) return;
       const msg =
         e instanceof ApiError ? `HTTP ${e.status}` : (e as Error).message;
       setError(msg);
     } finally {
-      setLoading(false);
+      if (seq === refreshSeqRef.current) setLoading(false);
     }
   }, []);
 

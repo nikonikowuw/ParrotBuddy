@@ -115,6 +115,9 @@ const FILE_PREVIEW_MIN_MAIN_WIDTH = 420;
 // shrink further than the manual-drag floor so the full page fits on screen.
 const FILE_PREVIEW_MIN_MAIN_WIDTH_AUTOFIT = 320;
 const FILE_PREVIEW_CLOSE_ANIMATION_MS = 320;
+/** Self-heal delay: if a freshly created chat never becomes the active chat
+ * (navigation race), drop the hero composer's booting state after this long. */
+const CHAT_BOOT_TIMEOUT_MS = 8_000;
 
 function clampFilePreviewWidth(width: number, maxWidth: number): number {
   return Math.min(Math.max(width, FILE_PREVIEW_MIN_WIDTH), maxWidth);
@@ -391,6 +394,7 @@ export function ThreadShell({
   const filePreviewWidthRef = useRef(FILE_PREVIEW_DEFAULT_WIDTH);
   const filePreviewCloseTimerRef = useRef<number | null>(null);
   const pendingFirstRef = useRef<PendingFirstMessage | null>(null);
+  const bootTimeoutRef = useRef<number | null>(null);
   const [pendingFirstTargetChatId, setPendingFirstTargetChatId] = useState<string | null>(null);
   const viewportRef = useRef<ThreadViewportHandle | null>(null);
   const messageCacheRef = useRef<Map<string, UIMessage[]>>(new Map());
@@ -650,11 +654,25 @@ export function ThreadShell({
     messageCacheRef.current.set(chatId, projectWebuiThreadMessages(messages));
   }, [chatId, loading, messages]);
 
+  const clearBootTimeout = useCallback(() => {
+    if (bootTimeoutRef.current !== null) {
+      window.clearTimeout(bootTimeoutRef.current);
+      bootTimeoutRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearBootTimeout();
+    };
+  }, [clearBootTimeout]);
+
   // The landing composer queues the first message while `new_chat` is in flight.
   // Only the chat created for that send may consume it; selecting another chat
   // while creation is pending must not leak the message there.
   useEffect(() => {
     if (!chatId || pendingFirstTargetChatId !== chatId) return;
+    clearBootTimeout();
     const pending = pendingFirstRef.current;
     if (!pending) {
       setPendingFirstTargetChatId(null);
@@ -665,7 +683,7 @@ export function ThreadShell({
     setScrollToLatestUserPromptSignal((value) => value + 1);
     send(pending.content, pending.images, pending.options);
     setBooting(false);
-  }, [chatId, pendingFirstTargetChatId, send]);
+  }, [chatId, pendingFirstTargetChatId, send, clearBootTimeout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -700,8 +718,19 @@ export function ThreadShell({
         return;
       }
       setPendingFirstTargetChatId(newId);
+      // Self-heal: if the created chat never becomes active (e.g. a navigation
+      // race), drop the booting state so the composer can't stay stuck on
+      // "opening…" indefinitely. The chat is already persisted and reachable
+      // from the sidebar.
+      clearBootTimeout();
+      bootTimeoutRef.current = window.setTimeout(() => {
+        bootTimeoutRef.current = null;
+        pendingFirstRef.current = null;
+        setPendingFirstTargetChatId(null);
+        setBooting(false);
+      }, CHAT_BOOT_TIMEOUT_MS);
     },
-    [booting, onCreateChat, withLightragWorkspaces, withWorkspaceScope, workspaceScope],
+    [booting, clearBootTimeout, onCreateChat, withLightragWorkspaces, withWorkspaceScope, workspaceScope],
   );
 
   const handleThreadSend = useCallback(

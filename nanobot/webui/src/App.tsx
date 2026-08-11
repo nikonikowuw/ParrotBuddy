@@ -88,6 +88,9 @@ const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 const PAIRING_DISMISS_SNOOZE_MS = 30_000;
+/** How long a freshly-created chat stays protected from the "activeKey not in
+ * sessions" fallback while the session list catches up. */
+const CREATED_CHAT_PROTECT_MS = 3_000;
 type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "documents" | "knowledge-graph";
 type LightRagView = "documents" | "knowledge-graph";
 type ShellRoute = {
@@ -1060,6 +1063,12 @@ function Shell({
     useState<Record<string, string[]>>({});
   const runningChatIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(null);
+  /** Keys of chats created in this session that may briefly be missing from
+   * ``sessions`` (a stale listSessions response racing the optimistic insert).
+   * The "activeKey not in sessions" fallback below must not kick the user back
+   * to the hero screen while one of these is the active chat. */
+  const recentlyCreatedChatKeysRef = useRef<Set<string>>(new Set());
+  const createdChatProtectTimerRef = useRef<number | null>(null);
   const hostSidebarPreviewCloseTimerRef = useRef<number | null>(null);
   const effectiveRuntimeSurface =
     settingsSnapshot?.surface ?? settingsSnapshot?.runtime_surface ?? runtimeSurface;
@@ -1232,7 +1241,16 @@ function Shell({
   }, [loading, sessions]);
 
   useEffect(() => {
+    return () => {
+      if (createdChatProtectTimerRef.current !== null) {
+        window.clearTimeout(createdChatProtectTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (loading || !activeKey) return;
+    if (recentlyCreatedChatKeysRef.current.has(activeKey)) return;
     if (sessions.some((session) => session.key === activeKey)) return;
     const currentRoute = readShellRoute();
     navigate(
@@ -1440,9 +1458,22 @@ function Shell({
     try {
       const scope = workspaceScope ?? activeWorkspaceScope;
       const chatId = await createChat(scope);
+      const key = `websocket:${chatId}`;
+      // Protect the freshly-created chat from the activeKey fallback above for a
+      // short grace window: a stale listSessions response that still predates
+      // this chat must not kick the user back to the hero screen and strand the
+      // hero composer's booting state.
+      recentlyCreatedChatKeysRef.current.add(key);
+      if (createdChatProtectTimerRef.current !== null) {
+        window.clearTimeout(createdChatProtectTimerRef.current);
+      }
+      createdChatProtectTimerRef.current = window.setTimeout(() => {
+        createdChatProtectTimerRef.current = null;
+        recentlyCreatedChatKeysRef.current.clear();
+      }, CREATED_CHAT_PROTECT_MS);
       navigate({
         view: "chat",
-        activeKey: `websocket:${chatId}`,
+        activeKey: key,
         settingsSection: "overview",
       });
       setMobileSidebarOpen(false);

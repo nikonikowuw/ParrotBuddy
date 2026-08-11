@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sessionTitle, useSessionHistory, useSessions } from "@/hooks/useSessions";
 import * as api from "@/lib/api";
+import type { ChatSummary } from "@/lib/types";
 import { ClientProvider } from "@/providers/ClientProvider";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -219,7 +220,7 @@ describe("useSessions", () => {
       await result.current.createChat();
     });
 
-    expect(client.newChat).toHaveBeenCalledWith(60_000, undefined);
+    expect(client.newChat).toHaveBeenCalledWith(8_000, undefined);
     expect(result.current.sessions.map((s) => s.key)).toEqual(["websocket:chat-new"]);
 
     await act(async () => {
@@ -236,6 +237,69 @@ describe("useSessions", () => {
     expect(result.current.sessions.map((s) => s.key)).toEqual(["websocket:chat-new"]);
     expect(result.current.sessions[0]?.preview).toBe("First message");
     expect(result.current.sessions[0]?.title).toBe("Generated title");
+  });
+
+  it("drops a stale refresh response that predates a newly created chat", async () => {
+    // Mount refresh resolves immediately; the next two listSessions calls are
+    // held open so we can resolve them out of order.
+    const deferred: Array<(rows: ChatSummary[] | PromiseLike<ChatSummary[]>) => void> = [];
+    vi.mocked(api.listSessions)
+      .mockImplementationOnce(() => Promise.resolve([]))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            deferred.push(resolve);
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            deferred.push(resolve);
+          }),
+      );
+    const client = fakeClient();
+    client.newChat.mockResolvedValue("chat-new");
+
+    const { result } = renderHook(() => useSessions(), {
+      wrapper: wrap(client),
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.createChat();
+    });
+    expect(result.current.sessions.map((s) => s.key)).toEqual(["websocket:chat-new"]);
+
+    // Two overlapping refreshes (e.g. two websocket session_updated events).
+    let staleRefresh!: Promise<void>;
+    let newestRefresh!: Promise<void>;
+    act(() => {
+      staleRefresh = result.current.refresh();
+      newestRefresh = result.current.refresh();
+    });
+
+    // The newer request resolves first and already includes the chat.
+    await act(async () => {
+      deferred[1]?.({
+        key: "websocket:chat-new",
+        channel: "websocket",
+        chatId: "chat-new",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:01:00Z",
+        preview: "First message",
+      } as never);
+      await newestRefresh;
+    });
+    expect(result.current.sessions.map((s) => s.key)).toEqual(["websocket:chat-new"]);
+
+    // The stale response (fetched before the chat existed) arrives last with an
+    // empty list — it must be dropped, never evicting the just-created chat.
+    await act(async () => {
+      deferred[0]?.([]);
+      await staleRefresh;
+    });
+    expect(result.current.sessions.map((s) => s.key)).toEqual(["websocket:chat-new"]);
   });
 
   it("stores optimistic workspace scope when creating a chat", async () => {
@@ -258,7 +322,7 @@ describe("useSessions", () => {
       await result.current.createChat(workspaceScope);
     });
 
-    expect(client.newChat).toHaveBeenCalledWith(60_000, workspaceScope);
+    expect(client.newChat).toHaveBeenCalledWith(8_000, workspaceScope);
     expect(result.current.sessions[0]?.workspaceScope).toEqual(workspaceScope);
   });
 
