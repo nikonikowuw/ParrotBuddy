@@ -41,10 +41,19 @@ function applyEmbeddedUrlOverrides(): void {
 }
 applyEmbeddedUrlOverrides()
 
+/** Whether the WebUI is loaded inside an iframe (`?embedded=1`). In embedded
+ * mode the whole nav bar (logo, tabs, version, settings) is hidden so the
+ * embedded Documents / Knowledge Graph pages fill the iframe. */
+function isEmbeddedMode(): boolean {
+  if (typeof window === 'undefined') return false
+  return new URLSearchParams(window.location.search).get('embedded') === '1'
+}
+
 function App() {
   const message = useBackendState.use.message()
   const enableHealthCheck = useSettingsStore.use.enableHealthCheck()
   const currentTab = useSettingsStore.use.currentTab()
+  const isEmbedded = isEmbeddedMode()
   const [apiKeyAlertOpen, setApiKeyAlertOpen] = useState(false)
   const [initializing, setInitializing] = useState(true) // Add initializing state
   const versionCheckRef = useRef(false); // Prevent duplicate calls in Vite dev mode
@@ -193,23 +202,25 @@ function App() {
         {initializing ? (
           // Loading state while initializing with simplified header
           <div className="flex h-screen w-screen flex-col">
-            {/* Simplified header during initialization - matches SiteHeader structure */}
-            <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-10 w-full border-b px-4 backdrop-blur">
-              <div className="min-w-[200px] w-auto flex items-center">
-                <a href={webuiPrefix} className="flex items-center gap-2">
-                  <ZapIcon className="size-4 text-emerald-400" aria-hidden="true" />
-                  <span className="font-bold md:inline-block">{SiteInfo.name}</span>
-                </a>
-              </div>
+            {/* Simplified header during initialization - matches SiteHeader structure (hidden when embedded) */}
+            {!isEmbedded && (
+              <header className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-10 w-full border-b px-4 backdrop-blur">
+                <div className="min-w-[200px] w-auto flex items-center">
+                  <a href={webuiPrefix} className="flex items-center gap-2">
+                    <ZapIcon className="size-4 text-emerald-400" aria-hidden="true" />
+                    <span className="font-bold md:inline-block">{SiteInfo.name}</span>
+                  </a>
+                </div>
 
-              {/* Empty middle section to maintain layout */}
-              <div className="flex h-10 flex-1 items-center justify-center">
-              </div>
+                {/* Empty middle section to maintain layout */}
+                <div className="flex h-10 flex-1 items-center justify-center">
+                </div>
 
-              {/* Empty right section to maintain layout */}
-              <nav className="w-[200px] flex items-center justify-end">
-              </nav>
-            </header>
+                {/* Empty right section to maintain layout */}
+                <nav className="w-[200px] flex items-center justify-end">
+                </nav>
+              </header>
+            )}
 
             {/* Loading indicator in content area */}
             <div className="flex flex-1 items-center justify-center">
@@ -227,7 +238,7 @@ function App() {
               className="!m-0 flex grow flex-col !p-0 overflow-hidden"
               onValueChange={handleTabChange}
             >
-              <SiteHeader />
+              {!isEmbedded && <SiteHeader />}
               <div className="relative grow">
                 <TabsContent value="documents" className="absolute top-0 right-0 bottom-0 left-0 overflow-auto">
                   <DocumentManager />
