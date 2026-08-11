@@ -100,3 +100,6 @@ temp/
 exp/
 .playwright-mcp/
 bridge/node_modules/
+
+# Runtime test artifacts (committed accidentally in the initial commit)
+testdir/
