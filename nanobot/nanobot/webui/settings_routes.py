@@ -51,6 +51,7 @@ from nanobot.webui.settings_api import (
     update_agent_settings,
     update_api_settings,
     update_image_generation_settings,
+    update_lightrag_settings,
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
@@ -117,6 +118,8 @@ class WebUISettingsRouter:
             return self._handle_settings_usage(request)
         if path == "/api/settings/update":
             return self._handle_settings_update(request)
+        if path == "/api/settings/lightrag/update":
+            return self._handle_settings_lightrag_update(request)
         if path == "/api/settings/model-configurations/create":
             return self._handle_settings_model_configuration_create(request)
         if path == "/api/settings/model-configurations/update":
@@ -311,6 +314,24 @@ class WebUISettingsRouter:
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _handle_settings_lightrag_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            query = self._query(request)
+            payload_str = _query_first(query, "payload")
+            if not payload_str:
+                raise WebUISettingsError("Missing payload query parameter")
+            data = json.loads(payload_str)
+            if not isinstance(data, dict):
+                raise WebUISettingsError("LightRAG settings payload must be an object")
+            payload = update_lightrag_settings(data)
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        except json.JSONDecodeError:
+            return self._error_response(400, "Invalid LightRAG settings payload")
+        return self._json_response(self._with_restart_state(payload))
 
     def _handle_settings_model_configuration_create(self, request: WsRequest) -> Response:
         if not self._authorized(request):

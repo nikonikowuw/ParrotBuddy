@@ -208,4 +208,104 @@ def _migrate_config(data: dict) -> dict:
         else:
             tools.pop("mySet", None)
 
+    _migrate_lightrag_config(data)
     return data
+
+
+_LEGACY_LIGHTRAG_CONFIG_KEYS = {
+    "apiBase",
+    "api_base",
+    "apiKey",
+    "api_key",
+    "defaultQueryMode",
+    "default_query_mode",
+    "defaultTopK",
+    "default_top_k",
+    "workspaces",
+    "timeout",
+    "proxy",
+    "includeReferences",
+    "include_references",
+    "includeChunkContent",
+    "include_chunk_content",
+}
+
+
+def _migrate_lightrag_config(data: dict) -> None:
+    """Migrate the single-server LightRAG config to the multi-server shape."""
+    tools = data.get("tools")
+    if not isinstance(tools, dict):
+        return
+    lightrag = tools.get("lightrag")
+    if not isinstance(lightrag, dict):
+        return
+    if isinstance(lightrag.get("servers"), list) and lightrag["servers"]:
+        default_workspace = lightrag.get("default_workspace") or lightrag.get("defaultWorkspace")
+        if default_workspace == "__default__":
+            first_name = lightrag["servers"][0]
+            first_name = first_name.get("name") if isinstance(first_name, dict) else None
+            lightrag["default_workspace"] = str(first_name or "").strip() or None
+        for key in _LEGACY_LIGHTRAG_CONFIG_KEYS:
+            lightrag.pop(key, None)
+        return
+    if not _LEGACY_LIGHTRAG_CONFIG_KEYS.intersection(lightrag):
+        return
+
+    workspaces = lightrag.get("workspaces")
+    if not isinstance(workspaces, list):
+        workspaces = []
+    names: list[str] = []
+    for workspace in workspaces:
+        name = str(workspace).strip()
+        if name and name not in names:
+            names.append(name)
+
+    server: dict[str, Any] = {
+        "apiBase": lightrag.get("apiBase") or lightrag.get("api_base") or "http://127.0.0.1:9621",
+        "apiKey": lightrag.get("apiKey") or lightrag.get("api_key"),
+        "defaultQueryMode": (
+            lightrag.get("defaultQueryMode")
+            or lightrag.get("default_query_mode")
+            or "mix"
+        ),
+        "defaultTopK": lightrag.get("defaultTopK") or lightrag.get("default_top_k"),
+        "timeout": lightrag.get("timeout", 60.0),
+        "proxy": lightrag.get("proxy"),
+        "includeReferences": (
+            lightrag.get("includeReferences", lightrag.get("include_references", True))
+        ),
+        "includeChunkContent": (
+            lightrag.get(
+                "includeChunkContent",
+                lightrag.get("include_chunk_content", False),
+            )
+        ),
+    }
+    if names:
+        default_workspace = str(
+            lightrag.get("default_workspace") or lightrag.get("defaultWorkspace") or ""
+        ).strip()
+        if default_workspace == "__default__" or default_workspace not in names:
+            default_workspace = names[0]
+        lightrag["default_workspace"] = default_workspace
+        lightrag["servers"] = [
+            {"name": name, **server}
+            for name in names
+        ]
+    else:
+        default_workspace = str(
+            lightrag.get("default_workspace") or lightrag.get("defaultWorkspace") or "default"
+        ).strip() or "default"
+        if default_workspace == "__default__":
+            default_workspace = "default"
+        lightrag["default_workspace"] = default_workspace
+        lightrag["servers"] = [
+            {"name": default_workspace, **server}
+        ]
+
+    for key in _LEGACY_LIGHTRAG_CONFIG_KEYS:
+        lightrag.pop(key, None)
+    logger.warning(
+        "Migrated legacy tools.lightrag config to multi-server servers. "
+        "Save the config once from the WebUI or CLI to persist the new shape."
+    )

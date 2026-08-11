@@ -47,6 +47,7 @@ import {
   Palette,
   Pencil,
   RotateCcw,
+  BookOpen,
   Search,
   Server,
   ShieldCheck,
@@ -118,6 +119,7 @@ import {
   stopApiService,
   updateAutomation,
   updateImageGenerationSettings,
+  updateLightragSettings,
   updateMcpServerTools,
   updateModelConfiguration,
   updateNetworkSafetySettings,
@@ -174,6 +176,7 @@ export type SettingsSectionKey =
   | "overview"
   | "appearance"
   | "models"
+  | "lightrag"
   | "image"
   | "voice"
   | "browser"
@@ -1685,6 +1688,14 @@ export function SettingsView({
             />
           </div>
         );
+      case "lightrag":
+        return (
+          <LightRagSettings
+            token={token}
+            settings={settings}
+            onUpdate={applyPayload}
+          />
+        );
       case "image":
         return (
           <ImageGenerationSettings
@@ -2008,6 +2019,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "overview", icon: Activity, fallback: "Overview" },
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
+  { key: "lightrag", icon: BookOpen, fallback: "Knowledge Base" },
   { key: "image", icon: ImageIcon, fallback: "Image" },
   { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },
@@ -8517,6 +8529,521 @@ function NumberInput({
         className="h-8 w-24 max-w-full rounded-full text-[13px]"
       />
       {suffix ? <span className="text-[12px] text-muted-foreground">{suffix}</span> : null}
+    </div>
+  );
+}
+
+type LightRagServerDraft = {
+  name: string;
+  /** Name the server had when the drafts were loaded; stable across renames. */
+  original_name: string;
+  /** True while the row has in-progress edits that must not be overwritten by payload sync. */
+  dirty: boolean;
+  api_base: string;
+  api_key: string;
+  api_key_dirty: boolean;
+  api_key_hint?: string | null;
+  default_query_mode: string;
+  default_top_k: string;
+  default_top_k_dirty: boolean;
+  timeout: string;
+  timeout_dirty: boolean;
+  proxy: string;
+  proxy_dirty: boolean;
+  include_references: boolean;
+  include_chunk_content: boolean;
+};
+
+const LIGHTRAG_QUERY_MODE_OPTIONS = [
+  "local",
+  "global",
+  "hybrid",
+  "naive",
+  "mix",
+  "bypass",
+].map((mode) => ({ name: mode, label: mode }));
+
+function lightragServerDraftFromPayload(server: NonNullable<SettingsPayload["lightrag"]>["servers"][number]): LightRagServerDraft {
+  return {
+    name: server.name,
+    original_name: server.name,
+    dirty: false,
+    api_base: server.api_base,
+    api_key: "",
+    api_key_dirty: false,
+    api_key_hint: server.api_key_hint ?? null,
+    default_query_mode: server.default_query_mode ?? "mix",
+    default_top_k: server.default_top_k == null ? "" : String(server.default_top_k),
+    default_top_k_dirty: false,
+    timeout: server.timeout == null ? "60" : String(server.timeout),
+    timeout_dirty: false,
+    proxy: server.proxy ?? "",
+    proxy_dirty: false,
+    include_references: server.include_references ?? true,
+    include_chunk_content: server.include_chunk_content ?? false,
+  };
+}
+
+function newLightragServerDraft(): LightRagServerDraft {
+  return {
+    name: "",
+    original_name: "",
+    dirty: true,
+    api_base: "http://127.0.0.1:9621",
+    api_key: "",
+    api_key_dirty: true,
+    api_key_hint: null,
+    default_query_mode: "mix",
+    default_top_k: "",
+    default_top_k_dirty: true,
+    timeout: "60",
+    timeout_dirty: true,
+    proxy: "",
+    proxy_dirty: false,
+    include_references: true,
+    include_chunk_content: false,
+  };
+}
+
+function LightRagSettings({
+  token,
+  settings,
+  onUpdate,
+}: {
+  token: string;
+  settings: SettingsPayload | null;
+  onUpdate: (payload: SettingsPayload) => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+
+  const [enabled, setEnabled] = useState(false);
+  const [servers, setServers] = useState<LightRagServerDraft[]>([]);
+  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  // Sync with the payload while preserving per-row in-progress edits: rows the
+  // user has touched (dirty) are kept as-is, untouched rows refresh from the
+  // payload, and new payload rows are appended.
+  useEffect(() => {
+    const lightrag = settings?.lightrag;
+    setEnabled(lightrag?.enabled ?? false);
+    setServers((current) => {
+      const payloadServers = lightrag?.servers ?? [];
+      const byName = new Map(payloadServers.map((s) => [s.name, s]));
+      const next: LightRagServerDraft[] = [];
+      const seen = new Set<string>();
+      for (const draft of current) {
+        const key = draft.original_name || draft.name;
+        if (draft.dirty) {
+          next.push(draft);
+          if (key) seen.add(key);
+          continue;
+        }
+        const ps = byName.get(key);
+        if (ps) {
+          next.push(lightragServerDraftFromPayload(ps));
+          seen.add(key);
+        }
+      }
+      for (const s of payloadServers) {
+        if (!seen.has(s.name) && !next.some((d) => (d.original_name || d.name) === s.name)) {
+          next.push(lightragServerDraftFromPayload(s));
+        }
+      }
+      return next;
+    });
+    setError(null);
+  }, [settings]);
+
+  const addServer = () => {
+    setServers((current) => {
+      const next = [...current, newLightragServerDraft()];
+      setExpandedIndex(next.length - 1);
+      return next;
+    });
+  };
+
+  const updateServer = (index: number, key: string, value: string) => {
+    setServers((current) => {
+      const updated = [...current];
+      const next = { ...updated[index], [key]: value, dirty: true } as LightRagServerDraft;
+      if (key === "api_key") next.api_key_dirty = true;
+      if (key === "default_top_k") next.default_top_k_dirty = true;
+      if (key === "timeout") next.timeout_dirty = true;
+      if (key === "proxy") next.proxy_dirty = true;
+      updated[index] = next;
+      return updated;
+    });
+  };
+
+  const updateServerBoolean = (index: number, key: "include_references" | "include_chunk_content", value: boolean) => {
+    setServers((current) => {
+      const updated = [...current];
+      updated[index] = { ...updated[index], [key]: value, dirty: true };
+      return updated;
+    });
+  };
+
+  // Build one server row for the backend payload. force=true submits every
+  // visible field of the target row; otherwise only fields the user edited are
+  // sent and the backend preserves the rest. api_key is only ever sent when the
+  // user edited it, because the stored value is never echoed back to the UI.
+  const buildServerRow = (server: LightRagServerDraft, force: boolean) => {
+    const row: {
+      name: string;
+      original_name?: string;
+      api_base: string;
+      api_key?: string | null;
+      default_query_mode?: string;
+      default_top_k?: number | null;
+      timeout?: number;
+      proxy?: string | null;
+      include_references?: boolean;
+      include_chunk_content?: boolean;
+    } = {
+      name: server.name.trim(),
+      api_base: server.api_base.trim(),
+      default_query_mode: server.default_query_mode,
+      include_references: server.include_references,
+      include_chunk_content: server.include_chunk_content,
+    };
+    if (server.original_name && server.original_name !== server.name) {
+      row.original_name = server.original_name;
+    }
+    if (server.api_key_dirty) row.api_key = server.api_key.trim() || null;
+    if (force || server.default_top_k_dirty) {
+      row.default_top_k = server.default_top_k === "" ? null : Number(server.default_top_k);
+    }
+    if (force || server.timeout_dirty) {
+      const parsed = Number(server.timeout);
+      if (server.timeout !== "" && Number.isFinite(parsed)) row.timeout = parsed;
+    }
+    if (force || server.proxy_dirty) row.proxy = server.proxy.trim() || null;
+    return row;
+  };
+
+  // Save one row independently: the target row submits all its visible fields,
+  // every other row only its edited fields, so unrelated in-progress edits stay
+  // untouched.
+  const saveServer = async (index: number) => {
+    if (savingIndex !== null) return;
+    const target = servers[index];
+    if (!target || !target.name.trim()) return;
+    setSavingIndex(index);
+    setError(null);
+    try {
+      const payload = await updateLightragSettings(token, {
+        servers: servers.map((server, i) => buildServerRow(server, i === index)),
+      });
+      setServers((current) => {
+        const updated = [...current];
+        const savedRow = payload.lightrag?.servers?.find(
+          (s) => s.name === target.name.trim() || (target.original_name && s.name === target.original_name),
+        );
+        if (savedRow) updated[index] = lightragServerDraftFromPayload(savedRow);
+        return updated;
+      });
+      setExpandedIndex(null);
+      onUpdate(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingIndex(null);
+    }
+  };
+
+  // Discard edits for one row: a new, unsaved row is dropped; a saved row is
+  // restored from the last payload.
+  const cancelServer = (index: number) => {
+    setServers((current) => {
+      const updated = [...current];
+      const target = updated[index];
+      if (!target?.original_name) {
+        updated.splice(index, 1);
+      } else {
+        const ps = settings?.lightrag?.servers?.find((s) => s.name === target.original_name);
+        updated[index] = ps ? lightragServerDraftFromPayload(ps) : updated[index];
+      }
+      return updated;
+    });
+    setExpandedIndex(null);
+  };
+
+  const confirmDelete = async () => {
+    if (deleteIndex === null || deleteSaving) return;
+    const target = servers[deleteIndex];
+    if (target && !target.original_name) {
+      // New, unsaved row: drop it locally without touching the backend.
+      setServers((current) => current.filter((_, i) => i !== deleteIndex));
+      setExpandedIndex(null);
+      setDeleteIndex(null);
+      return;
+    }
+    setDeleteSaving(true);
+    setError(null);
+    try {
+      const remaining = servers.filter((_, i) => i !== deleteIndex);
+      const payload = await updateLightragSettings(token, {
+        servers: remaining.map((server) => buildServerRow(server, false)),
+      });
+      setServers((current) => current.filter((_, i) => i !== deleteIndex));
+      setExpandedIndex(null);
+      onUpdate(payload);
+      setDeleteIndex(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleteIndex(null);
+    } finally {
+      setDeleteSaving(false);
+    }
+  };
+
+  const toggleEnabled = async (next: boolean) => {
+    setEnabled(next);
+    setError(null);
+    try {
+      const payload = await updateLightragSettings(token, { enabled: next });
+      onUpdate(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setEnabled(!next);
+    }
+  };
+
+  const deleteTarget = deleteIndex !== null ? servers[deleteIndex] : null;
+
+  return (
+    <div className="space-y-7">
+      <section>
+        <SettingsSectionTitle>{tx("settings.lightrag.title", "LightRAG Knowledge Base")}</SettingsSectionTitle>
+        {error && <div className="mb-4 text-sm text-red-500 font-medium">{error}</div>}
+        <SettingsGroup>
+          <SettingsRow
+            title={tx("settings.lightrag.enable", "Enable Knowledge Base Integration")}
+            description={tx("settings.lightrag.enableDesc", "Allow the agent to query configured LightRAG vector databases.")}
+          >
+            <ToggleButton
+              checked={enabled}
+              onChange={toggleEnabled}
+              label={tx("settings.lightrag.enable", "Enable")}
+            />
+          </SettingsRow>
+        </SettingsGroup>
+      </section>
+
+      {enabled && (
+        <section className="mt-4">
+          <div className="flex items-center justify-between mb-4">
+            <SettingsSectionTitle>{tx("settings.lightrag.serversTitle", "Servers")}</SettingsSectionTitle>
+            {servers.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={addServer} className="h-7 rounded-full px-3 text-[12px] shadow-sm">
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {tx("settings.lightrag.addServer", "Add Server")}
+              </Button>
+            )}
+          </div>
+          <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/10 shadow-[0_22px_70px_rgba(15,23,42,0.02)]">
+            <div className="divide-y divide-border/45">
+              {servers.map((server, index) => {
+                const expanded = expandedIndex === index;
+                return (
+                  <div key={index} className="divide-y divide-border/45 bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedIndex(expanded ? null : index)}
+                      className="flex min-h-[70px] w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/35 sm:px-5"
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-muted/40 shadow-sm dark:bg-white/[0.04] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                          <Database className="h-5 w-5 text-muted-foreground/70" />
+                        </div>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[15px] font-semibold leading-5 text-foreground">
+                            {server.name || tx("settings.lightrag.newServer", "New Server")}
+                          </span>
+                          <span className="block truncate text-[12px] text-muted-foreground">
+                            {server.api_base || "http://127.0.0.1:9621"}
+                          </span>
+                        </span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteIndex(index);
+                          }}
+                          className="h-8 w-8 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          aria-label={tx("settings.lightrag.removeServer", "Remove Server")}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <ChevronDown
+                          className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", {
+                            "rotate-180": expanded,
+                          })}
+                          aria-hidden
+                        />
+                      </div>
+                    </button>
+                    {expanded && (
+                      <div className="flex flex-col gap-0 bg-muted/5">
+                        <SettingsRow title={tx("settings.lightrag.serverName", "Display name")} description={tx("settings.lightrag.nameHelp", "Used in the chat selection menu.")}>
+                          <Input
+                            value={server.name}
+                            onChange={(e) => updateServer(index, "name", e.target.value)}
+                            placeholder={tx("settings.lightrag.namePlaceholder", "e.g., Medical Docs")}
+                            className="h-8 w-[min(260px,50vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.apiBase", "API base URL")}>
+                          <Input
+                            value={server.api_base}
+                            onChange={(e) => updateServer(index, "api_base", e.target.value)}
+                            placeholder="http://127.0.0.1:9621"
+                            className="h-8 w-[min(260px,50vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.apiKey", "API key")} description={tx("settings.lightrag.apiKeyHelp", "Leave empty if not required.")}>
+                          <Input
+                            type="password"
+                            value={server.api_key}
+                            onChange={(e) => updateServer(index, "api_key", e.target.value)}
+                            placeholder={server.api_key_hint ? tx("settings.lightrag.apiKeyConfigured", "Configured") : tx("settings.lightrag.apiKeyOptional", "Optional")}
+                            className="h-8 w-[min(260px,50vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.defaultMode", "Default query mode")}>
+                          <ProviderPicker
+                            providers={LIGHTRAG_QUERY_MODE_OPTIONS}
+                            value={server.default_query_mode}
+                            emptyLabel="mix"
+                            onChange={(mode) => updateServer(index, "default_query_mode", mode)}
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.defaultTopK", "Default top-k")}>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={server.default_top_k}
+                            onChange={(e) => updateServer(index, "default_top_k", e.target.value)}
+                            placeholder="Server default"
+                            className="h-8 w-[min(180px,40vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.timeout", "Timeout (seconds)")}>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={server.timeout}
+                            onChange={(e) => updateServer(index, "timeout", e.target.value)}
+                            className="h-8 w-[min(180px,40vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.proxy", "Proxy URL")}>
+                          <Input
+                            value={server.proxy}
+                            onChange={(e) => updateServer(index, "proxy", e.target.value)}
+                            placeholder={tx("settings.lightrag.proxyPlaceholder", "Optional")}
+                            className="h-8 w-[min(260px,50vw)] rounded-full text-[13px]"
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.includeReferences", "Include references")}>
+                          <ToggleButton
+                            checked={server.include_references}
+                            onChange={(value) => updateServerBoolean(index, "include_references", value)}
+                            label={tx("settings.lightrag.includeReferences", "References")}
+                          />
+                        </SettingsRow>
+                        <SettingsRow title={tx("settings.lightrag.includeChunkContent", "Include chunk content")}>
+                          <ToggleButton
+                            checked={server.include_chunk_content}
+                            onChange={(value) => updateServerBoolean(index, "include_chunk_content", value)}
+                            label={tx("settings.lightrag.includeChunkContent", "Chunk content")}
+                          />
+                        </SettingsRow>
+                        <div className="flex items-center justify-end gap-2 border-t border-border/45 px-4 py-3 sm:px-5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => cancelServer(index)}
+                            disabled={savingIndex === index}
+                            className="rounded-full"
+                          >
+                            {tx("settings.actions.cancel", "Cancel")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => saveServer(index)}
+                            disabled={savingIndex === index || !server.name.trim()}
+                            className="rounded-full"
+                          >
+                            {savingIndex === index
+                              ? t("settings.actions.saving")
+                              : tx("settings.actions.save", "Save")}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {servers.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-9 text-center border-t border-border/45 bg-muted/5">
+                <Database className="h-8 w-8 text-muted-foreground/30 mb-3" />
+                <p className="text-[13px] text-muted-foreground mb-4">{tx("settings.lightrag.noServers", "No knowledge bases configured.")}</p>
+                <Button variant="outline" size="sm" onClick={addServer} className="rounded-full h-8 text-[12.5px]">
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  {tx("settings.lightrag.addServer", "Add Server")}
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+      <Dialog open={deleteIndex !== null} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleteIndex(null); }}>
+        <DialogContent className="w-[min(calc(100vw-2rem),26rem)] rounded-[26px]">
+          <DialogHeader>
+            <DialogTitle>{tx("settings.lightrag.deleteTitle", "Delete knowledge base")}</DialogTitle>
+            <DialogDescription>
+              {tx("settings.lightrag.deleteDescription", "This removes {{name}} from the knowledge base list.", {
+                name: deleteTarget?.name || tx("settings.lightrag.newServer", "New Server"),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setDeleteIndex(null)}
+              disabled={deleteSaving}
+              className="rounded-full"
+            >
+              {tx("settings.actions.cancel", "Cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void confirmDelete()}
+              disabled={deleteSaving}
+              className="rounded-full"
+            >
+              {deleteSaving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+              {tx("settings.lightrag.delete", "Delete")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

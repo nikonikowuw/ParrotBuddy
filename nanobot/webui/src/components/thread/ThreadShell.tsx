@@ -514,7 +514,7 @@ export function ThreadShell({
 
   const lightragSettings = settingsSnapshot?.lightrag;
   const knowledgeBaseOptions = useMemo(
-    () => (lightragSettings ? lightragSettings.workspaces : []),
+    () => (lightragSettings?.servers ? lightragSettings.servers.map((s) => s.name) : []),
     [lightragSettings],
   );
   const knowledgeBaseEnabled = !!lightragSettings?.enabled;

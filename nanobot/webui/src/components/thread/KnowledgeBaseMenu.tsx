@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import {
   BookOpen,
   ChevronDown,
-  Database,
   X,
 } from "lucide-react";
 
@@ -19,16 +18,13 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * UI sentinel marking "use the LightRAG server's default workspace" (no
- * LIGHTRAG-WORKSPACE header). Must match the backend _DEFAULT_SENTINEL in
- * nanobot/agent/tools/lightrag.py.
+ * Knowledge-base selector for configured LightRAG servers. The selection is
+ * stored as server names and sent to the backend as lightrag_workspaces.
  */
-export const DEFAULT_KB_SENTINEL = "__default__";
-
 export interface KnowledgeBaseMenuProps {
-  /** Named workspace allowlist sourced from settings (config.tools.lightrag.workspaces). */
+  /** Server names sourced from settings (config.tools.lightrag.servers). */
   options: string[];
-  /** Currently selected workspace names (may include the {@link DEFAULT_KB_SENTINEL}). */
+  /** Currently selected server names. */
   selected: string[];
   isHero: boolean;
   disabled?: boolean;
@@ -44,23 +40,13 @@ export function KnowledgeBaseMenu({
 }: KnowledgeBaseMenuProps) {
   const { t } = useTranslation();
   const interactive = !disabled && !!onChange;
-  const isDefaultOnly =
-    selected.length === 1 && selected[0] === DEFAULT_KB_SENTINEL;
-  const namedSelected = selected.filter((w) => w !== DEFAULT_KB_SENTINEL);
   const hasSelection = selected.length > 0;
-
-  const toggleDefault = () => {
-    if (!onChange) return;
-    onChange(isDefaultOnly ? [] : [DEFAULT_KB_SENTINEL]);
-  };
 
   const toggleNamed = (name: string) => {
     if (!onChange) return;
-    // Selecting a named workspace clears the Default sentinel (mutually exclusive).
-    const withoutDefault = selected.filter((w) => w !== DEFAULT_KB_SENTINEL);
-    const next = withoutDefault.includes(name)
-      ? withoutDefault.filter((w) => w !== name)
-      : [...withoutDefault, name];
+    const next = selected.includes(name)
+      ? selected.filter((item) => item !== name)
+      : [...selected, name];
     onChange(next);
   };
 
@@ -70,11 +56,9 @@ export function KnowledgeBaseMenu({
 
   const triggerLabel = !hasSelection
     ? t("thread.composer.knowledgeBase.label")
-    : isDefaultOnly
-      ? t("thread.composer.knowledgeBase.default")
-      : t("thread.composer.knowledgeBase.selectedCount", {
-          count: namedSelected.length,
-        });
+    : t("thread.composer.knowledgeBase.selectedCount", {
+        count: selected.length,
+      });
 
   return (
     <DropdownMenu>
@@ -125,17 +109,8 @@ export function KnowledgeBaseMenu({
           {t("thread.composer.knowledgeBase.label")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
-          checked={isDefaultOnly}
-          onCheckedChange={toggleDefault}
-          onSelect={(e) => e.preventDefault()}
-        >
-          <Database className="mr-1.5 inline h-3.5 w-3.5" />
-          {t("thread.composer.knowledgeBase.default")}
-        </DropdownMenuCheckboxItem>
         {options.length > 0 ? (
           <>
-            <DropdownMenuSeparator />
             {options.map((name) => (
               <DropdownMenuCheckboxItem
                 key={name}
@@ -147,7 +122,11 @@ export function KnowledgeBaseMenu({
               </DropdownMenuCheckboxItem>
             ))}
           </>
-        ) : null}
+        ) : (
+          <div className="px-2.5 py-1.5 text-[12px] text-muted-foreground">
+            {t("thread.composer.knowledgeBase.none")}
+          </div>
+        )}
         {hasSelection ? (
           <>
             <DropdownMenuSeparator />

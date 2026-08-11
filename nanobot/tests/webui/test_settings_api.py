@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from nanobot.agent.tools.lightrag import LightRagServerConfig
 from nanobot.config.loader import load_config, save_config
 from nanobot.config.schema import Config, ModelPresetConfig
 from nanobot.providers.registry import find_by_name
@@ -22,6 +23,7 @@ from nanobot.webui.settings_api import (
     settings_usage_payload,
     update_agent_settings,
     update_api_settings,
+    update_lightrag_settings,
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
@@ -1343,3 +1345,328 @@ def test_azure_openai_spec_no_longer_requires_api_key() -> None:
     spec = find_by_name("azure_openai")
     assert spec is not None
     assert _provider_requires_api_key(spec) is False
+
+
+def test_update_lightrag_settings_preserves_omitted_server_fields(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.enabled = True
+    config.tools.lightrag.servers = [
+        LightRagServerConfig(
+            name="docs",
+            api_key="secret",
+            default_top_k=7,
+            timeout=45,
+            proxy="http://proxy.test:8080",
+            include_references=False,
+            include_chunk_content=True,
+        )
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = update_lightrag_settings({
+        "enabled": True,
+        "servers": [{
+            "name": "docs",
+            "api_base": "http://127.0.0.1:9621",
+            "default_query_mode": "local",
+        }],
+    })
+
+    saved = load_config(config_path)
+    server = saved.tools.lightrag.servers[0]
+    assert server.api_key == "secret"
+    assert server.default_top_k == 7
+    assert server.timeout == 45
+    assert server.proxy == "http://proxy.test:8080"
+    assert server.include_references is False
+    assert server.include_chunk_content is True
+    assert server.default_query_mode == "local"
+    row = payload["lightrag"]["servers"][0]
+    assert row["api_key_hint"] is not None
+    assert "api_key" not in row
+
+
+def test_update_lightrag_settings_explicit_empty_api_key_clears(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.servers = [LightRagServerConfig(name="docs", api_key="secret")]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    update_lightrag_settings({
+        "enabled": True,
+        "servers": [{
+            "name": "docs",
+            "api_base": "http://127.0.0.1:9621",
+            "api_key": None,
+        }],
+    })
+
+    saved = load_config(config_path)
+    assert saved.tools.lightrag.servers[0].api_key is None
+
+
+def test_update_lightrag_settings_empty_camel_case_aliases_clear(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.servers = [
+        LightRagServerConfig(
+            name="docs",
+            api_key="secret",
+            default_top_k=7,
+            proxy="http://proxy.test:8080",
+        )
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    update_lightrag_settings({
+        "servers": [{
+            "name": "docs",
+            "api_base": "http://127.0.0.1:9621",
+            "apiKey": "",
+            "defaultTopK": "",
+            "proxy": "",
+        }],
+    })
+
+    saved = load_config(config_path)
+    server = saved.tools.lightrag.servers[0]
+    assert server.api_key is None
+    assert server.default_top_k is None
+    assert server.proxy is None
+
+
+def test_update_lightrag_settings_accepts_legacy_camel_case_aliases(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.enabled = True
+    config.tools.lightrag.servers = [LightRagServerConfig(name="docs", api_key="old")]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    update_lightrag_settings({
+        "enabled": True,
+        "defaultWorkspace": "docs",
+        "servers": [{
+            "name": "docs",
+            "apiBase": "http://127.0.0.1:9621",
+            "apiKey": "new-key",
+            "defaultQueryMode": "hybrid",
+            "defaultTopK": 8,
+            "timeout": 20,
+            "proxy": "http://proxy.test:8080",
+            "includeReferences": False,
+            "includeChunkContent": True,
+        }],
+    })
+
+    saved = load_config(config_path)
+    server = saved.tools.lightrag.servers[0]
+    assert server.api_base == "http://127.0.0.1:9621"
+    assert server.api_key == "new-key"
+    assert server.default_query_mode == "hybrid"
+    assert server.default_top_k == 8
+    assert server.timeout == 20
+    assert server.proxy == "http://proxy.test:8080"
+    assert server.include_references is False
+    assert server.include_chunk_content is True
+    assert saved.tools.lightrag.default_workspace == "docs"
+
+
+def test_update_lightrag_settings_normalizes_empty_default_workspace(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.default_workspace = "docs"
+    config.tools.lightrag.servers = [LightRagServerConfig(name="docs")]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    update_lightrag_settings({"defaultWorkspace": ""})
+
+    saved = load_config(config_path)
+    assert saved.tools.lightrag.default_workspace is None
+
+
+def test_update_lightrag_settings_clears_stale_default_workspace(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.enabled = True
+    config.tools.lightrag.default_workspace = "docs"
+    config.tools.lightrag.servers = [LightRagServerConfig(name="docs")]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    update_lightrag_settings({
+        "enabled": True,
+        "servers": [{
+            "name": "research",
+            "api_base": "http://127.0.0.1:9621",
+        }],
+    })
+
+    saved = load_config(config_path)
+    assert [server.name for server in saved.tools.lightrag.servers] == ["research"]
+    assert saved.tools.lightrag.default_workspace is None
+
+
+def test_update_lightrag_settings_rejects_invalid_mode(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError, match="default_query_mode"):
+        update_lightrag_settings({
+            "enabled": True,
+            "servers": [{
+                "name": "docs",
+                "api_base": "http://127.0.0.1:9621",
+                "default_query_mode": "bogus",
+            }],
+        })
+
+
+def test_update_lightrag_settings_rejects_invalid_url(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError, match="invalid LightRAG API base"):
+        update_lightrag_settings({
+            "enabled": True,
+            "servers": [{
+                "name": "docs",
+                "api_base": "ftp://nope",
+            }],
+        })
+
+
+def test_settings_payload_includes_lightrag_server_fields(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.enabled = True
+    config.tools.lightrag.servers = [
+        LightRagServerConfig(
+            name="docs",
+            api_key="secret",
+            default_top_k=10,
+            timeout=30,
+            proxy="http://proxy.test:8080",
+            include_references=False,
+            include_chunk_content=True,
+        )
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = settings_payload()
+    row = payload["lightrag"]["servers"][0]
+
+    assert row["name"] == "docs"
+    assert row["default_top_k"] == 10
+    assert row["timeout"] == 30
+    assert row["proxy"] == "http://proxy.test:8080"
+    assert row["include_references"] is False
+    assert row["include_chunk_content"] is True
+    assert row["api_key_hint"] is not None
+
+
+def test_update_lightrag_settings_rename_preserves_omitted_fields(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renaming a server keeps its stored api_key and other omitted fields."""
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.enabled = True
+    config.tools.lightrag.default_workspace = "docs"
+    config.tools.lightrag.servers = [
+        LightRagServerConfig(
+            name="docs",
+            api_key="secret",
+            default_top_k=7,
+            timeout=45,
+            proxy="http://proxy.test:8080",
+            include_references=False,
+            include_chunk_content=True,
+        )
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    # Frontend sends original_name when the display name changed; omitted fields
+    # (api_key, default_top_k, timeout, proxy) must be preserved from the original.
+    update_lightrag_settings({
+        "enabled": True,
+        "servers": [{
+            "name": "docs2",
+            "original_name": "docs",
+            "api_base": "http://127.0.0.1:9621",
+            "default_query_mode": "local",
+        }],
+    })
+
+    saved = load_config(config_path)
+    assert [server.name for server in saved.tools.lightrag.servers] == ["docs2"]
+    server = saved.tools.lightrag.servers[0]
+    assert server.api_key == "secret"
+    assert server.default_top_k == 7
+    assert server.timeout == 45
+    assert server.proxy == "http://proxy.test:8080"
+    assert server.include_references is False
+    assert server.include_chunk_content is True
+    assert server.default_query_mode == "local"
+    assert saved.tools.lightrag.default_workspace is None  # stale name cleared
+
+
+def test_update_lightrag_settings_rename_rejects_name_collision(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renaming a server onto an existing name is rejected as a duplicate."""
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.servers = [
+        LightRagServerConfig(name="docs", api_key="a"),
+        LightRagServerConfig(name="research", api_key="b"),
+    ]
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    with pytest.raises(WebUISettingsError, match="duplicate LightRAG server name"):
+        update_lightrag_settings({
+            "enabled": True,
+            "servers": [
+                {"name": "research", "original_name": "docs", "api_base": "http://127.0.0.1:9621"},
+                {"name": "research", "api_base": "http://127.0.0.1:9621"},
+            ],
+        })

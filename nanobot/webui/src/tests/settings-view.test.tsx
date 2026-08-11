@@ -187,6 +187,7 @@ function renderSettingsView(
       | "automations"
       | "advanced"
       | "models"
+      | "lightrag"
       | "browser"
       | "runtime";
     initialSettings?: SettingsPayload;
@@ -2379,5 +2380,106 @@ describe("SettingsView Apps catalog", () => {
         }),
       ),
     );
+  });
+});
+
+function lightragSettingsPayload(): SettingsPayload {
+  const base = settingsPayload();
+  return {
+    ...base,
+    lightrag: {
+      enabled: true,
+      default_workspace: "docs",
+      servers: [
+        {
+          name: "docs",
+          api_base: "http://127.0.0.1:9621",
+          api_key_hint: "sk-…",
+          default_query_mode: "mix",
+          default_top_k: 7,
+          timeout: 45,
+          proxy: null,
+          include_references: true,
+          include_chunk_content: false,
+        },
+      ],
+    },
+  };
+}
+
+describe("SettingsView LightRAG knowledge base", () => {
+  it("saves a renamed knowledge base row and sends the original name", async () => {
+    const payload = lightragSettingsPayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+      if (url.startsWith("/api/settings/lightrag/update")) return jsonResponse(payload);
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSettingsView({ initialSection: "lightrag" });
+
+    // Expand the server row and rename it.
+    fireEvent.click(await screen.findByRole("button", { name: /docs/ }));
+    fireEvent.change(await screen.findByDisplayValue("docs"), { target: { value: "docs2" } });
+
+    // Row-level Save submits this row, carrying the pre-rename name so the
+    // backend preserves stored fields (api_key, top_k, timeout, proxy).
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).startsWith("/api/settings/lightrag/update"),
+        ),
+      ).toBe(true),
+    );
+    const updateCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/api/settings/lightrag/update"),
+    );
+    const updateQuery = String(updateCall?.[0]).split("?")[1] ?? "";
+    const sent = JSON.parse(new URLSearchParams(updateQuery).get("payload") ?? "{}");
+    expect(sent.servers[0]).toMatchObject({ name: "docs2", original_name: "docs" });
+  });
+
+  it("deletes a knowledge base row through a confirmation dialog", async () => {
+    const payload = lightragSettingsPayload();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+      if (url.startsWith("/api/settings/lightrag/update")) {
+        return jsonResponse({ ...payload, lightrag: { ...payload.lightrag, servers: [] } });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSettingsView({ initialSection: "lightrag" });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Remove Server/ }));
+    expect(
+      await screen.findByText("This removes docs from the knowledge base list."),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).startsWith("/api/settings/lightrag/update"),
+        ),
+      ).toBe(true),
+    );
+    const updateCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/api/settings/lightrag/update"),
+    );
+    const updateQuery = String(updateCall?.[0]).split("?")[1] ?? "";
+    const sent = JSON.parse(new URLSearchParams(updateQuery).get("payload") ?? "{}");
+    expect(sent.servers).toEqual([]);
+    expect(await screen.findByText("No knowledge bases configured.")).toBeInTheDocument();
   });
 });

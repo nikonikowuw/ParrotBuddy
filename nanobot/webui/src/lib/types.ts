@@ -466,10 +466,18 @@ export interface SettingsPayload {
   };
   lightrag?: {
     enabled: boolean;
-    api_base: string;
-    workspaces: string[];
+    servers: Array<{
+      name: string;
+      api_base: string;
+      api_key_hint?: string | null;
+      default_query_mode: string;
+      default_top_k?: number | null;
+      timeout?: number;
+      proxy?: string | null;
+      include_references?: boolean;
+      include_chunk_content?: boolean;
+    }>;
     default_workspace: string | null;
-    default_query_mode: string;
   };
   transcription?: {
     enabled: boolean;

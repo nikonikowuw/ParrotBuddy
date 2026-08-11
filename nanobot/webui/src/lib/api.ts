@@ -911,3 +911,34 @@ export async function updateTranscriptionSettings(
     token,
   );
 }
+
+export interface LightRagSettingsUpdate {
+  enabled?: boolean;
+  defaultWorkspace?: string | null;
+  servers?: Array<{
+    name: string;
+    /** Pre-rename name so the backend can preserve stored fields on a rename. */
+    original_name?: string;
+    api_base: string;
+    api_key?: string | null;
+    default_query_mode?: string;
+    default_top_k?: number | null;
+    timeout?: number;
+    proxy?: string | null;
+    include_references?: boolean;
+    include_chunk_content?: boolean;
+  }>;
+}
+
+export async function updateLightragSettings(
+  token: string,
+  update: LightRagSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("payload", JSON.stringify(update));
+  return request<SettingsPayload>(
+    `${base}/api/settings/lightrag/update?${query}`,
+    token,
+  );
+}

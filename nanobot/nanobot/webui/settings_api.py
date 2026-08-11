@@ -14,6 +14,7 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import httpx
+from pydantic import ValidationError
 
 from nanobot import __version__
 from nanobot.agent.tools.web import SEARCH_PROVIDER_OPTIONS
@@ -29,7 +30,7 @@ from nanobot.providers.image_generation import (
     image_gen_provider_names,
 )
 from nanobot.providers.registry import PROVIDERS, create_dynamic_spec, find_by_name
-from nanobot.security.network import is_loopback_host
+from nanobot.security.network import is_loopback_host, validate_url_target
 from nanobot.security.workspace_access import workspace_sandbox_status
 from nanobot.webui.token_usage import token_usage_payload
 from nanobot.webui.workspaces import (
@@ -619,11 +620,11 @@ def provider_models_payload(query: QueryParams) -> dict[str, Any]:
     }
 
 
-def _parse_bool(value: str, field: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized not in {"1", "0", "true", "false", "yes", "no"}:
+def _parse_bool(value: Any, field: str) -> bool:
+    normalized = str(value).strip().lower()
+    if normalized not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
         raise WebUISettingsError(f"{field} must be boolean")
-    return normalized in {"1", "true", "yes"}
+    return normalized in {"1", "true", "yes", "on"}
 
 
 def _parse_context_window_tokens(value: str | None) -> int | None:
@@ -904,10 +905,21 @@ def settings_payload(
         },
         "lightrag": {
             "enabled": lightrag_config.enabled,
-            "api_base": lightrag_config.api_base,
-            "workspaces": list(lightrag_config.workspaces),
+            "servers": [
+                {
+                    "name": s.name,
+                    "api_base": s.api_base,
+                    "api_key_hint": _mask_secret_hint(s.api_key),
+                    "default_query_mode": s.default_query_mode,
+                    "default_top_k": s.default_top_k,
+                    "timeout": s.timeout,
+                    "proxy": s.proxy,
+                    "include_references": s.include_references,
+                    "include_chunk_content": s.include_chunk_content,
+                }
+                for s in lightrag_config.servers
+            ],
             "default_workspace": lightrag_config.default_workspace,
-            "default_query_mode": lightrag_config.default_query_mode,
         },
         "transcription": {
             "enabled": transcription.enabled,
@@ -966,6 +978,117 @@ def settings_usage_payload() -> dict[str, Any]:
     """Return the lightweight token usage slice for Overview refreshes."""
     config = load_config()
     return token_usage_payload(timezone_name=config.agents.defaults.timezone)
+
+
+def update_lightrag_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Update LightRAG multi-server configuration without clearing omitted fields."""
+    from nanobot.agent.tools.lightrag import LightRagServerConfig
+
+    config = load_config()
+    lightrag_config = config.tools.lightrag
+    changed = False
+
+    if "enabled" in data:
+        enabled = _parse_bool(data["enabled"], "enabled")
+        if lightrag_config.enabled != enabled:
+            lightrag_config.enabled = enabled
+            changed = True
+
+    if "default_workspace" in data or "defaultWorkspace" in data:
+        raw_default = data.get("default_workspace", data.get("defaultWorkspace"))
+        default_workspace = (
+            str(raw_default).strip()
+            if raw_default is not None
+            else None
+        )
+        if not default_workspace:
+            default_workspace = None
+        if lightrag_config.default_workspace != default_workspace:
+            lightrag_config.default_workspace = default_workspace
+            changed = True
+
+    if "servers" in data:
+        if not isinstance(data["servers"], list):
+            raise WebUISettingsError("servers must be a list")
+
+        existing_by_name = {server.name: server for server in lightrag_config.servers}
+        new_servers: list[LightRagServerConfig] = []
+        seen: set[str] = set()
+        for index, raw_server in enumerate(data["servers"]):
+            if not isinstance(raw_server, dict):
+                raise WebUISettingsError(f"servers[{index}] must be an object")
+            raw_name = raw_server.get("name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise WebUISettingsError(f"servers[{index}].name is required")
+            name = raw_name.strip()
+            if name in seen:
+                raise WebUISettingsError(f"duplicate LightRAG server name: {name}")
+            seen.add(name)
+
+            if "api_base" in raw_server or "apiBase" in raw_server:
+                raw_api_base = raw_server.get("api_base", raw_server.get("apiBase"))
+                if not isinstance(raw_api_base, str) or not raw_api_base.strip():
+                    raise WebUISettingsError(f"servers[{index}].api_base is required")
+                ok, err = validate_url_target(raw_api_base.strip(), allow_loopback=True)
+                if not ok:
+                    raise WebUISettingsError(
+                        f"invalid LightRAG API base for '{name}': {err}"
+                    )
+
+            # Match by the server's original name (sent by the WebUI so a rename
+            # preserves the stored api_key and other omitted fields), falling back
+            # to the current name for clients that do not send original_name.
+            match_name = (
+                raw_server.get("original_name")
+                or raw_server.get("originalName")
+                or name
+            )
+            existing = existing_by_name.get(match_name)
+            merged = existing.model_dump() if existing is not None else {}
+            merged.update(raw_server)
+            merged.pop("original_name", None)
+            merged.pop("originalName", None)
+            for field_name, field_info in LightRagServerConfig.model_fields.items():
+                alias = field_info.alias
+                if not alias or alias == field_name:
+                    continue
+                if alias in raw_server and field_name not in raw_server:
+                    merged[field_name] = raw_server[alias]
+                merged.pop(alias, None)
+            for field in ("name", "api_base", "api_key", "proxy"):
+                if isinstance(merged.get(field), str):
+                    merged[field] = merged[field].strip()
+            for field in ("api_key", "proxy"):
+                if merged.get(field) == "":
+                    merged[field] = None
+            if merged.get("default_top_k") == "":
+                merged["default_top_k"] = None
+
+            try:
+                new_servers.append(LightRagServerConfig.model_validate(merged))
+            except ValidationError as exc:
+                errors = exc.errors()
+                if not errors:
+                    raise WebUISettingsError(f"servers[{index}] is invalid") from exc
+                location = ".".join(str(part) for part in errors[0]["loc"])
+                prefix = f"servers[{index}]" + (f".{location}" if location else "")
+                raise WebUISettingsError(f"{prefix}: {errors[0]['msg']}") from exc
+
+        new_names = {server.name for server in new_servers}
+        if (
+            lightrag_config.default_workspace is not None
+            and lightrag_config.default_workspace not in new_names
+        ):
+            lightrag_config.default_workspace = None
+            changed = True
+
+        if lightrag_config.servers != new_servers:
+            lightrag_config.servers = new_servers
+            changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload()
 
 
 def update_agent_settings(query: QueryParams) -> dict[str, Any]:

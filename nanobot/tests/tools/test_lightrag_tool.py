@@ -6,34 +6,32 @@ import httpx
 import pytest
 
 from nanobot.agent.tools.context import RequestContext, request_context
-from nanobot.agent.tools.lightrag import LightRagQueryTool, LightRagToolConfig
+from nanobot.agent.tools.lightrag import (
+    LightRagQueryTool,
+    LightRagServerConfig,
+    LightRagToolConfig,
+)
 from nanobot.agent.tools.registry import is_tool_error_result
 from nanobot.config.schema import ToolsConfig
 
 
+def _server(name: str = "proj1", **overrides: object) -> LightRagServerConfig:
+    return LightRagServerConfig(name=name, **overrides)  # type: ignore[arg-type]
+
+
 def _tool(
     *,
-    api_base: str = "http://127.0.0.1:9621",
-    api_key: str | None = None,
-    workspaces: list[str] | None = None,
+    servers: list[LightRagServerConfig] | None = None,
     default_workspace: str | None = None,
-    include_references: bool = True,
-    include_chunk_content: bool = False,
-    default_top_k: int | None = None,
-    default_query_mode: str = "mix",
+    config_loader=None,
 ) -> LightRagQueryTool:
     return LightRagQueryTool(
         config=LightRagToolConfig(
             enabled=True,
-            api_base=api_base,
-            api_key=api_key,
-            workspaces=workspaces or [],
+            servers=servers or [],
             default_workspace=default_workspace,
-            include_references=include_references,
-            include_chunk_content=include_chunk_content,
-            default_top_k=default_top_k,
-            default_query_mode=default_query_mode,  # type: ignore[arg-type]
-        )
+        ),
+        config_loader=config_loader,
     )
 
 
@@ -85,13 +83,18 @@ def test_enabled_gate_reads_config():
     assert LightRagQueryTool.enabled(ctx) is True
 
 
-def test_create_builds_from_ctx():
-    ctx = SimpleNamespace(
-        config=ToolsConfig(lightrag=LightRagToolConfig(enabled=True, api_base="http://x:1"))
-    )
+def test_create_binds_live_config():
+    cfg = LightRagToolConfig(enabled=True, servers=[_server()])
+    ctx = SimpleNamespace(config=ToolsConfig(lightrag=cfg))
     tool = LightRagQueryTool.create(ctx)
     assert isinstance(tool, LightRagQueryTool)
-    assert tool.config.api_base == "http://x:1"
+    assert tool._get_live_config() is cfg
+
+
+def test_live_config_reloads_from_loader():
+    cfg = LightRagToolConfig(enabled=True, servers=[_server()])
+    tool = _tool(config_loader=lambda: cfg)
+    assert tool._get_live_config() is cfg
 
 
 def test_to_schema_has_no_workspace_param():
@@ -100,7 +103,7 @@ def test_to_schema_has_no_workspace_param():
     assert fn["name"] == "lightrag_query"
     props = fn["parameters"]["properties"]
     assert set(props) == {"query", "mode", "top_k", "only_need_context", "include_references"}
-    assert "workspace" not in props  # LLM cannot pick a workspace
+    assert "workspace" not in props  # LLM cannot pick a knowledge base
     assert fn["parameters"]["required"] == ["query"]
     assert set(props["mode"]["enum"]) == {"local", "global", "hybrid", "naive", "mix", "bypass"}
 
@@ -114,7 +117,7 @@ def test_runtime_context_provider_is_bound():
 
 
 @pytest.mark.asyncio
-async def test_cli_default_workspace_sets_header(monkeypatch):
+async def test_cli_default_workspace_queries_server(monkeypatch):
     captured: dict = {}
 
     async def mock_post(self, url, **kw):
@@ -127,19 +130,22 @@ async def test_cli_default_workspace_sets_header(monkeypatch):
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(api_key="lk", workspaces=["proj1"], default_workspace="proj1")
+    tool = _tool(
+        servers=[_server(name="proj1", api_key="lk")],
+        default_workspace="proj1",
+    )
     result = await tool.execute(query="What is RAG?")
 
     assert captured["url"] == "http://127.0.0.1:9621/query"
     assert captured["headers"]["X-API-Key"] == "lk"
-    assert captured["headers"]["LIGHTRAG-WORKSPACE"] == "proj1"
+    assert "LIGHTRAG-WORKSPACE" not in captured["headers"]
     assert captured["json"] == {
         "query": "What is RAG?",
         "mode": "mix",
         "include_references": True,
     }
     assert "RAG combines retrieval with generation." in result
-    assert "## Workspace: proj1" in result
+    assert "## Knowledge Base: proj1" in result
     assert "/docs/rag.pdf (id:1)" in result
 
 
@@ -149,7 +155,7 @@ async def test_cli_no_default_skips_recall(monkeypatch):
         raise AssertionError("must not call LightRAG when no scope is configured")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool()  # no default_workspace, no context
+    tool = _tool()
     result = await tool.execute(query="q?")
 
     assert "No knowledge base selected" in result
@@ -166,11 +172,14 @@ async def test_cli_mode_override_and_top_k(monkeypatch):
         return _response(json={"response": "ctx", "references": None})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_top_k=20, default_workspace="proj")
+    tool = _tool(
+        servers=[_server(name="proj", default_top_k=20)],
+        default_workspace="proj",
+    )
     result = await tool.execute(query="entities", mode="local", top_k=5)
 
     assert captured["json"]["mode"] == "local"
-    assert captured["json"]["top_k"] == 5  # explicit param wins over config default
+    assert captured["json"]["top_k"] == 5
     assert "ctx" in result
 
 
@@ -183,7 +192,7 @@ async def test_cli_only_need_context(monkeypatch):
         return _response(json={"response": "raw chunk context"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     result = await tool.execute(query="recall", only_need_context=True)
 
     assert captured["json"]["only_need_context"] is True
@@ -202,11 +211,11 @@ async def test_cli_include_references_false(monkeypatch):
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     result = await tool.execute(query="q?", include_references=False)
 
     assert captured["json"]["include_references"] is False
-    assert "/x.pdf" not in result  # refs omitted when include_references=False
+    assert "/x.pdf" not in result
 
 
 @pytest.mark.asyncio
@@ -217,15 +226,22 @@ async def test_cli_include_chunk_content(monkeypatch):
         captured["json"] = kw["json"]
         return _response(json={
             "response": "ans",
-            "references": [{"reference_id": "7", "file_path": "/c.md", "content": ["line A", "line B"]}],
+            "references": [{
+                "reference_id": "7",
+                "file_path": "/c.md",
+                "content": ["line A", "line B"],
+            }],
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj", include_chunk_content=True)
+    tool = _tool(
+        servers=[_server("proj", include_chunk_content=True)],
+        default_workspace="proj",
+    )
     result = await tool.execute(query="q?")
 
     assert captured["json"]["include_chunk_content"] is True
-    assert "## Workspace: proj" in result
+    assert "## Knowledge Base: proj" in result
     assert "/c.md (id:7)" in result
     assert "line A" in result
     assert "line B" in result
@@ -237,10 +253,13 @@ async def test_cli_http_error_returns_tool_error(monkeypatch):
         return _response(status=401, json={"detail": "bad key"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(api_key="bad", default_workspace="proj")
+    tool = _tool(
+        servers=[_server("proj", api_key="bad")],
+        default_workspace="proj",
+    )
     result = await tool.execute(query="q?")
 
-    assert "Error: LightRAG query failed (401)" in result
+    assert "query failed with 401" in result
     assert is_tool_error_result("lightrag_query", result)
 
 
@@ -250,10 +269,10 @@ async def test_cli_request_error_returns_tool_error(monkeypatch):
         raise httpx.ConnectError("conn refused", request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     result = await tool.execute(query="q?")
 
-    assert "Error: LightRAG request failed" in result
+    assert "request failed" in result
     assert is_tool_error_result("lightrag_query", result)
 
 
@@ -266,7 +285,7 @@ async def test_cli_non_json_response_returns_error(monkeypatch):
         return r
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     result = await tool.execute(query="q?")
 
     assert "non-JSON" in result
@@ -279,7 +298,7 @@ async def test_invalid_mode_rejected(monkeypatch):
         return _response(json={"response": "x"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     result = await tool.execute(query="q?", mode="bogus")
 
     assert "mode must be one of" in result
@@ -287,11 +306,14 @@ async def test_invalid_mode_rejected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalid_api_base_returns_error_before_scope():
-    tool = _tool(api_base="ftp://nope")
+async def test_invalid_api_base_returns_error():
+    tool = _tool(
+        servers=[_server(name="bad", api_base="ftp://nope")],
+        default_workspace="bad",
+    )
     result = await tool.execute(query="q?")
 
-    assert "LightRAG api_base invalid" in result
+    assert "invalid api_base" in result
     assert is_tool_error_result("lightrag_query", result)
 
 
@@ -305,7 +327,7 @@ async def test_env_api_key_fallback(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     monkeypatch.setenv("LIGHTRAG_API_KEY", "env-key")
-    tool = _tool(default_workspace="proj")  # CLI scope
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     await tool.execute(query="q?")
 
     assert captured["headers"]["X-API-Key"] == "env-key"
@@ -315,7 +337,7 @@ async def test_env_api_key_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_webui_single_workspace_sets_header(monkeypatch):
+async def test_webui_single_server_selected(monkeypatch):
     captured: dict = {}
 
     async def mock_post(self, url, **kw):
@@ -324,34 +346,14 @@ async def test_webui_single_workspace_sets_header(monkeypatch):
         return _response(json={"response": "ans"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     with _bind(_webui_ctx(["a"])):
         result = await tool.execute(query="q?")
 
-    assert captured["headers"]["LIGHTRAG-WORKSPACE"] == "a"
-    # single-workspace path does NOT force only_need_context
-    assert "only_need_context" not in captured["json"]
-    assert "## Workspace: a" in result
-    assert "ans" in result
-
-
-@pytest.mark.asyncio
-async def test_webui_default_sentinel_uses_server_default(monkeypatch):
-    captured: dict = {}
-
-    async def mock_post(self, url, **kw):
-        captured["headers"] = kw["headers"]
-        return _response(json={"response": "server-ans"})
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
-    with _bind(_webui_ctx(["__default__"])):
-        result = await tool.execute(query="q?")
-
-    # __default__ sentinel → no LIGHTRAG-WORKSPACE header (server default)
     assert "LIGHTRAG-WORKSPACE" not in captured["headers"]
-    assert "## Workspace: (default)" in result
-    assert "server-ans" in result
+    assert "only_need_context" not in captured["json"]
+    assert "## Knowledge Base: a" in result
+    assert "ans" in result
 
 
 @pytest.mark.asyncio
@@ -360,7 +362,7 @@ async def test_webui_empty_selection_skips(monkeypatch):
         raise AssertionError("must not call LightRAG when WebUI selection is empty")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     with _bind(_webui_ctx([])):
         result = await tool.execute(query="q?")
 
@@ -375,37 +377,36 @@ async def test_webui_no_kb_key_skips(monkeypatch):
         raise AssertionError("must not call LightRAG without a selection")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"], default_workspace="proj")
+    tool = _tool(
+        servers=[_server("a"), _server("b")],
+        default_workspace="proj",
+    )
     with _bind(_webui_ctx(None)):
         result = await tool.execute(query="q?")
 
-    # WebUI empty → skip, even though config.default_workspace is set
     assert "No knowledge base selected" in result
 
 
 @pytest.mark.asyncio
-async def test_webui_fanout_multi_workspace(monkeypatch):
+async def test_webui_fanout_multi_server(monkeypatch):
     calls: list[dict] = []
 
     async def mock_post(self, url, **kw):
-        ws = kw["headers"].get("LIGHTRAG-WORKSPACE")
-        calls.append({"ws": ws, "json": kw["json"]})
-        return _response(json={"response": f"ctx-{ws}"})
+        calls.append({"json": kw["json"]})
+        return _response(json={"response": f"ctx-{len(calls)}"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     with _bind(_webui_ctx(["a", "b"])):
         result = await tool.execute(query="q?")
 
     assert len(calls) == 2
-    assert {c["ws"] for c in calls} == {"a", "b"}
-    for c in calls:
-        # fan-out forces raw-context recall regardless of LLM flag
-        assert c["json"]["only_need_context"] is True
-    assert "## Workspace: a" in result
-    assert "## Workspace: b" in result
-    assert "ctx-a" in result
-    assert "ctx-b" in result
+    for call in calls:
+        assert call["json"]["only_need_context"] is True
+    assert "## Knowledge Base: a" in result
+    assert "## Knowledge Base: b" in result
+    assert "ctx-1" in result
+    assert "ctx-2" in result
 
 
 @pytest.mark.asyncio
@@ -417,7 +418,7 @@ async def test_webui_fanout_forces_only_need_context_even_when_llm_says_false(mo
         return _response(json={"response": "ctx"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     with _bind(_webui_ctx(["a", "b"])):
         await tool.execute(query="q?", only_need_context=False)
 
@@ -429,50 +430,68 @@ async def test_webui_fanout_forces_only_need_context_even_when_llm_says_false(mo
 @pytest.mark.asyncio
 async def test_webui_fanout_partial_failure_is_graceful(monkeypatch):
     async def mock_post(self, url, **kw):
-        ws = kw["headers"].get("LIGHTRAG-WORKSPACE")
-        if ws == "bad":
-            return _response(status=500, json={"detail": "boom"})
         return _response(json={"response": "ok-good"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["bad", "good"])
+    tool = _tool(
+        servers=[
+            _server(name="bad", api_base="ftp://nope"),
+            _server("good"),
+        ]
+    )
     with _bind(_webui_ctx(["bad", "good"])):
         result = await tool.execute(query="q?")
 
-    assert "## Workspace: bad" in result
+    assert "## Knowledge Base: bad" in result
     assert "(error:" in result
-    assert "## Workspace: good" in result
-    assert "ok-good" in result
-    # multi-workspace failures degrade gracefully, NOT a hard tool error
+    assert "## Knowledge Base: good" in result
     assert not is_tool_error_result("lightrag_query", result)
 
 
 @pytest.mark.asyncio
-async def test_webui_workspace_validated_against_allowlist():
-    tool = _tool(workspaces=["a", "b"])  # allowlist only a, b
-    with _bind(_webui_ctx(["x"])):
+async def test_webui_all_failures_return_tool_error(monkeypatch):
+    async def mock_post(self, url, **kw):
+        return _response(status=500, json={"detail": "boom"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(servers=[_server("bad1"), _server("bad2")])
+    with _bind(_webui_ctx(["bad1", "bad2"])):
         result = await tool.execute(query="q?")
 
-    assert "not in configured allowlist" in result
+    assert "query failed with 500" in result
     assert is_tool_error_result("lightrag_query", result)
 
 
 @pytest.mark.asyncio
-async def test_webui_default_sentinel_ignores_mixed_named(monkeypatch):
-    """If the (exclusive) Default sentinel appears alongside names, Default wins."""
-    captured: dict = {}
+async def test_webui_unknown_selection_skips(monkeypatch):
+    async def mock_post(self, url, **kw):
+        raise AssertionError("must not call LightRAG for an unknown server")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(servers=[_server("a"), _server("b")])
+    with _bind(_webui_ctx(["unknown"])):
+        result = await tool.execute(query="q?")
+
+    assert "No knowledge base selected" in result
+    assert not is_tool_error_result("lightrag_query", result)
+
+
+@pytest.mark.asyncio
+async def test_webui_legacy_default_sentinel_does_not_route(monkeypatch):
+    calls: list[dict] = []
 
     async def mock_post(self, url, **kw):
-        captured["headers"] = kw["headers"]
+        calls.append(kw)
         return _response(json={"response": "ok"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     with _bind(_webui_ctx(["__default__", "a"])):
         result = await tool.execute(query="q?")
 
-    assert "LIGHTRAG-WORKSPACE" not in captured["headers"]
-    assert "## Workspace: (default)" in result
+    assert len(calls) == 1
+    assert "## Knowledge Base: a" in result
+    assert "## Knowledge Base: b" not in result
 
 
 @pytest.mark.asyncio
@@ -481,12 +500,14 @@ async def test_non_webui_context_falls_through_to_cli_default(monkeypatch):
     captured: dict = {}
 
     async def mock_post(self, url, **kw):
-        captured["headers"] = kw["headers"]
+        captured["json"] = kw["json"]
         return _response(json={"response": "ok"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
-    tool = _tool(workspaces=["a", "b", "proj"], default_workspace="proj")
-    # metadata has lightrag_workspaces=["a"] but NO webui flag → CLI path
+    tool = _tool(
+        servers=[_server("a"), _server("b"), _server("proj")],
+        default_workspace="proj",
+    )
     ctx = RequestContext(
         channel="test",
         chat_id="t",
@@ -495,9 +516,7 @@ async def test_non_webui_context_falls_through_to_cli_default(monkeypatch):
     with _bind(ctx):
         result = await tool.execute(query="q?")
 
-    # CLI path uses config.default_workspace, ignoring the metadata list
-    assert captured["headers"]["LIGHTRAG-WORKSPACE"] == "proj"
-    assert "## Workspace: proj" in result
+    assert "## Knowledge Base: proj" in result
 
 
 # --- runtime_context_provider ------------------------------------------------
@@ -505,7 +524,7 @@ async def test_non_webui_context_falls_through_to_cli_default(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_runtime_context_block_cli_active_is_directive():
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     block = await tool._provide_runtime_context(
         RequestContext(
             channel="test",
@@ -518,34 +537,25 @@ async def test_runtime_context_block_cli_active_is_directive():
     assert block.source == "lightrag"
     assert "active" in block.content
     assert "proj" in block.content
-    # directive phrasing: steer the LLM to call the tool first
     assert "lightrag_query" in block.content
-    assert "do not wait" in block.content
 
 
 @pytest.mark.asyncio
 async def test_runtime_context_block_webui_selection_is_directive():
-    tool = _tool(workspaces=["a", "b"])
+    tool = _tool(servers=[_server("a"), _server("b")])
     block = await tool._provide_runtime_context(_webui_ctx(["a", "b"]))
     assert block is not None
     assert "active" in block.content
     assert "a" in block.content and "b" in block.content
     assert "lightrag_query" in block.content
-    assert "do not wait" in block.content
-
-
-@pytest.mark.asyncio
-async def test_runtime_context_block_webui_default_sentinel():
-    tool = _tool(workspaces=["a", "b"])
-    block = await tool._provide_runtime_context(_webui_ctx(["__default__"]))
-    assert block is not None
-    assert "server default" in block.content
-    assert "lightrag_query" in block.content
 
 
 @pytest.mark.asyncio
 async def test_runtime_context_block_webui_empty_is_disabled():
-    tool = _tool(workspaces=["a", "b"], default_workspace="proj")
+    tool = _tool(
+        servers=[_server("a"), _server("b")],
+        default_workspace="proj",
+    )
     block = await tool._provide_runtime_context(_webui_ctx(None))
     assert block is not None
     assert "disabled" in block.content
@@ -554,9 +564,18 @@ async def test_runtime_context_block_webui_empty_is_disabled():
 
 
 @pytest.mark.asyncio
+async def test_runtime_context_block_stale_selection_is_disabled():
+    tool = _tool(servers=[_server("a")])
+    block = await tool._provide_runtime_context(_webui_ctx(["unknown"]))
+    assert block is not None
+    assert "disabled" in block.content
+    assert "unknown" not in block.content
+
+
+@pytest.mark.asyncio
 async def test_runtime_context_block_continuation_turn_returns_none():
     """Internal continuation turns (no original_user_text) stay silent."""
-    tool = _tool(default_workspace="proj")
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
     block = await tool._provide_runtime_context(
         RequestContext(
             channel="test",
@@ -566,3 +585,51 @@ async def test_runtime_context_block_continuation_turn_returns_none():
         )
     )
     assert block is None
+
+
+@pytest.mark.asyncio
+async def test_execute_skips_when_live_config_disabled(monkeypatch):
+    """A WebUI disable takes effect on a running loop via the live config."""
+    async def mock_post(self, url, **kw):
+        raise AssertionError("must not call LightRAG when integration is disabled")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    disabled = LightRagToolConfig(enabled=False, servers=[_server("a")])
+    tool = _tool(config_loader=lambda: disabled)
+    result = await tool.execute(query="q?")
+
+    assert "disabled" in result
+    assert not is_tool_error_result("lightrag_query", result)
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_block_live_config_disabled():
+    """Runtime context reports disabled when the live config has enabled=False."""
+    disabled = LightRagToolConfig(enabled=False, servers=[_server("a")])
+    tool = _tool(config_loader=lambda: disabled)
+    block = await tool._provide_runtime_context(_webui_ctx(["a"]))
+    assert block is not None
+    assert "disabled" in block.content
+    assert "Do not call lightrag_query" in block.content
+
+
+@pytest.mark.asyncio
+async def test_execute_uses_live_config_targets(monkeypatch):
+    """Server list changes (WebUI add/remove) are picked up without a restart."""
+    captured: dict = {}
+
+    async def mock_post(self, url, **kw):
+        captured["json"] = kw["json"]
+        return _response(json={"response": "ans"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    live = LightRagToolConfig(
+        enabled=True,
+        servers=[_server("live")],
+        default_workspace="live",
+    )
+    tool = _tool(config_loader=lambda: live)
+    result = await tool.execute(query="q?")
+
+    assert "## Knowledge Base: live" in result
+    assert "ans" in result

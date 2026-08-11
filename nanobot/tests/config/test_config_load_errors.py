@@ -42,3 +42,106 @@ def test_api_config_allows_wildcard_host_with_key() -> None:
 
     assert config.host == "0.0.0.0"
     assert config.api_key == "secret"
+
+
+def test_load_config_migrates_legacy_lightrag_workspaces(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "lightrag": {
+                    "enabled": True,
+                    "apiBase": "http://127.0.0.1:9621",
+                    "apiKey": "legacy-key",
+                    "workspaces": ["docs", "research"],
+                    "defaultQueryMode": "hybrid",
+                    "defaultTopK": 20,
+                    "timeout": 45,
+                    "proxy": "http://proxy.test:8080",
+                    "includeReferences": False,
+                    "includeChunkContent": True,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    lightrag = config.tools.lightrag
+    assert lightrag.enabled is True
+    assert [server.name for server in lightrag.servers] == ["docs", "research"]
+    assert lightrag.default_workspace == "docs"
+    docs = lightrag.servers[0]
+    assert docs.api_base == "http://127.0.0.1:9621"
+    assert docs.api_key == "legacy-key"
+    assert docs.default_query_mode == "hybrid"
+    assert docs.default_top_k == 20
+    assert docs.timeout == 45
+    assert docs.proxy == "http://proxy.test:8080"
+    assert docs.include_references is False
+    assert docs.include_chunk_content is True
+
+
+def test_load_config_normalizes_legacy_lightrag_default_workspace_sentinel(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "lightrag": {
+                    "enabled": True,
+                    "default_workspace": "__default__",
+                    "servers": [{"name": "docs", "api_base": "http://127.0.0.1:9621"}],
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    lightrag = config.tools.lightrag
+    assert [server.name for server in lightrag.servers] == ["docs"]
+    assert lightrag.default_workspace == "docs"
+
+
+def test_load_config_migrates_legacy_lightrag_without_workspaces(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "lightrag": {
+                    "enabled": True,
+                    "apiBase": "http://127.0.0.1:9621",
+                    "defaultWorkspace": "main",
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    lightrag = config.tools.lightrag
+    assert [server.name for server in lightrag.servers] == ["main"]
+    assert lightrag.default_workspace == "main"
+
+
+def test_load_config_migrates_legacy_lightrag_dedupes_workspaces(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "lightrag": {
+                    "enabled": True,
+                    "apiBase": "http://127.0.0.1:9621",
+                    "workspaces": ["docs", "docs", "research"],
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    lightrag = config.tools.lightrag
+    assert [server.name for server in lightrag.servers] == ["docs", "research"]
+    assert lightrag.default_workspace == "docs"

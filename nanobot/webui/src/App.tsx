@@ -198,6 +198,7 @@ const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "overview",
   "appearance",
   "models",
+  "lightrag",
   "image",
   "voice",
   "browser",
