@@ -911,7 +911,7 @@ function describeActivityGroup(
     return { title: "Vision", icon: FileImage };
   }
   if (names.some((name) => /browser|screenshot/.test(name))) return { title: "Browser", icon: FileImage };
-  if (names.some((name) => /web|search|fetch|read|open/.test(name))) return { title: "Web", icon: Search };
+  if (names.some((name) => /web|search|fetch|read|open|lightrag/.test(name))) return { title: "Web", icon: Search };
   if (names.some((name) => /exec|shell|terminal|bash|run_cli_app|cli_anything/.test(name))) return { title: "Shell", icon: Terminal };
   if (names.some((name) => /^mcp_|mcp/.test(name))) return { title: "MCP", icon: Server };
   if (message.fileEdits?.length) return { title: "Files", icon: Layers };
@@ -998,7 +998,7 @@ function describeTraceLine(line: string): TraceDescription {
   const webDetail = parsedUrl ? formatTraceUrl(parsedUrl) : "";
   const plainWebReadTrace =
     !!parsedUrl && /\b(fetch(?:ing|ed)?|read(?:ing)?|opened?|opening)\b/i.test(trimmed);
-  if (/search/i.test(name)) {
+  if (/search|lightrag/i.test(name)) {
     return { kind: "search", label: "Searching", detail: previewTraceDetail(args, trimmed) };
   }
   if (/fetch|read|open/i.test(name) || plainWebReadTrace) {
