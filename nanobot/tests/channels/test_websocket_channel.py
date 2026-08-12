@@ -1411,6 +1411,26 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_stream_end_preserves_resuming_state() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_delta(
+        "chat-1",
+        "",
+        stream_id="sid",
+        stream_end=True,
+        resuming=True,
+    )
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload["event"] == "stream_end"
+    assert payload["resuming"] is True
+
+
+@pytest.mark.asyncio
 async def test_send_delta_stream_end_includes_inline_final_text() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))

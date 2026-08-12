@@ -34,6 +34,7 @@ class GatewayServices:
 def build_gateway_services(
     *,
     config: Any,
+    root_config: Any,
     bus: Any,
     session_manager: Any | None,
     static_dist_path: Path | None,
@@ -63,6 +64,7 @@ def build_gateway_services(
     )
     http = GatewayHTTPHandler(
         config=config,
+        root_config=root_config,
         session_manager=session_manager,
         static_dist_path=static_dist_path,
         runtime_model_name=runtime_model_name,

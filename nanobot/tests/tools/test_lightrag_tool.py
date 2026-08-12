@@ -146,7 +146,7 @@ async def test_cli_default_workspace_queries_server(monkeypatch):
     }
     assert "RAG combines retrieval with generation." in result
     assert "## Knowledge Base: proj1" in result
-    assert "/docs/rag.pdf (id:1)" in result
+    assert "[/docs/rag.pdf](/api/lightrag/file/proj1/docs/rag.pdf) (id:1)" in result
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_cli_include_chunk_content(monkeypatch):
 
     assert captured["json"]["include_chunk_content"] is True
     assert "## Knowledge Base: proj" in result
-    assert "/c.md (id:7)" in result
+    assert "[/c.md](/api/lightrag/file/proj/c.md) (id:7)" in result
     assert "line A" in result
     assert "line B" in result
 

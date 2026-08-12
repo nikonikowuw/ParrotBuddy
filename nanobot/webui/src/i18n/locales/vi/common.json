@@ -1117,6 +1117,7 @@
     "reasoningTools": "Suy luận · {{count}} công cụ",
     "reasoningToolsSingular": "Suy luận · 1 công cụ",
     "reasoning": "Suy luận",
+    "references": "Tài liệu tham khảo",
     "reasoningStreaming": "Đang suy nghĩ…",
     "reasoningSummary": "Suy luận",
     "agentActivitySummary": "{{reasoning}} bước · {{tools}} lần gọi công cụ",

@@ -1,5 +1,10 @@
 import type { KeyboardEvent, MouseEvent } from "react";
-import { FaFileExcel, FaFilePdf, FaFilePowerpoint, FaFileWord } from "react-icons/fa";
+import {
+  FaFileExcel,
+  FaFilePdf,
+  FaFilePowerpoint,
+  FaFileWord,
+} from "react-icons/fa";
 
 import {
   Tooltip,
@@ -69,7 +74,10 @@ export function FileReferenceChip({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className={cn("not-prose inline-flex max-w-full align-baseline leading-[inherit]", className)}
+            className={cn(
+              "not-prose inline-flex max-w-full align-baseline leading-[inherit]",
+              className,
+            )}
           >
             <span
               data-testid={testId}
@@ -99,8 +107,12 @@ export function FileReferenceChip({
               >
                 {display === "path" && directory ? (
                   <>
-                    <span className="text-muted-foreground/65">{directory}</span>
-                    <span className="font-semibold text-sky-700 dark:text-sky-200">{name}</span>
+                    <span className="text-muted-foreground/65">
+                      {directory}
+                    </span>
+                    <span className="font-semibold text-sky-700 dark:text-sky-200">
+                      {name}
+                    </span>
                   </>
                 ) : (
                   displayText
@@ -133,21 +145,84 @@ export function isLikelyFilePath(value: string): boolean {
   if (!raw || raw.includes("\n")) return false;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return false;
   if (isFilePatternReference(raw)) return false;
-  if (!/[\\/]/.test(raw) && !/^(dockerfile|makefile|readme|package-lock\.json)$/i.test(raw)) {
-    return false;
-  }
+
   const normalized = raw.replace(/\\/g, "/");
   const name = normalized.split("/").filter(Boolean).pop() ?? normalized;
   if (!name || name === "." || name === "..") return false;
-  if (/^(dockerfile|makefile|readme|package-lock\.json)$/i.test(name)) return true;
-  return /\.[a-z0-9][a-z0-9_-]{0,12}$/i.test(name);
+
+  if (
+    /^(dockerfile|makefile|readme|package-lock\.json|\.gitignore|\.env|\.env\.local)$/i.test(
+      name,
+    )
+  )
+    return true;
+
+  const hasSlash = /[\\/]/.test(raw);
+  const match = /\.([a-z0-9][a-z0-9_-]{0,12})$/i.exec(name);
+  if (!match) return false;
+
+  if (hasSlash) return true;
+
+  // For bare filenames like `main.py` (no slashes), require a known extension
+  // to avoid false positives on version numbers (e.g., `v1.0.0`) or names (`Node.js`).
+  const ext = match[1].toLowerCase();
+  const knownExts = new Set([
+    "py",
+    "js",
+    "jsx",
+    "ts",
+    "tsx",
+    "json",
+    "md",
+    "txt",
+    "csv",
+    "html",
+    "css",
+    "scss",
+    "yml",
+    "yaml",
+    "sh",
+    "bash",
+    "env",
+    "toml",
+    "lock",
+    "xml",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "rb",
+    "php",
+    "pdf",
+    "docx",
+    "xlsx",
+    "sqlite",
+    "sqlite3",
+    "db",
+    "log",
+    "vue",
+    "svelte",
+    "cjs",
+    "mjs",
+    "ini",
+    "cfg",
+    "conf",
+  ]);
+
+  return knownExts.has(ext);
 }
 
 export function isFilePatternReference(value: string): boolean {
   return /[*?[\]{}]/.test(value.trim());
 }
 
-export function splitFilePath(path: string): { directory: string; name: string } {
+export function splitFilePath(path: string): {
+  directory: string;
+  name: string;
+} {
   const normalized = path.replace(/\\/g, "/");
   const slash = normalized.lastIndexOf("/");
   if (slash < 0) return { directory: "", name: path };
@@ -160,7 +235,7 @@ export function splitFilePath(path: string): { directory: string; name: string }
 export function fileKindForPath(path: string): FileReferenceKind {
   const normalized = path.toLowerCase();
   const name = normalized.split(/[\\/]/).pop() ?? normalized;
-  const ext = name.includes(".") ? name.split(".").pop() ?? "" : "";
+  const ext = name.includes(".") ? (name.split(".").pop() ?? "") : "";
   if (name === "dockerfile") {
     return "default";
   }
@@ -249,7 +324,13 @@ export function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
         <circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none" />
         <ellipse cx="12" cy="12" rx="9" ry="3.7" />
         <ellipse cx="12" cy="12" rx="9" ry="3.7" transform="rotate(60 12 12)" />
-        <ellipse cx="12" cy="12" rx="9" ry="3.7" transform="rotate(120 12 12)" />
+        <ellipse
+          cx="12"
+          cy="12"
+          rx="9"
+          ry="3.7"
+          transform="rotate(120 12 12)"
+        />
       </svg>
     );
   }
@@ -270,7 +351,12 @@ export function FileReferenceIcon({ kind }: { kind: FileReferenceKind }) {
       </svg>
     );
   }
-  if (kind === "word" || kind === "excel" || kind === "powerpoint" || kind === "pdf") {
+  if (
+    kind === "word" ||
+    kind === "excel" ||
+    kind === "powerpoint" ||
+    kind === "pdf"
+  ) {
     // Font Awesome file icons are compound paths: the branded letter (W/X/P)
     // is a negative-space cut-out, so filling with the Office brand color
     // renders a colored document with a white brand letter — the standard

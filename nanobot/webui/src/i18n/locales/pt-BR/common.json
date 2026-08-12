@@ -1117,6 +1117,7 @@
     "reasoningTools": "Raciocínio · {{count}} ferramentas",
     "reasoningToolsSingular": "Raciocínio · 1 ferramenta",
     "reasoning": "Pensando",
+    "references": "Documentos de referência",
     "reasoningStreaming": "Pensando…",
     "reasoningSummary": "Raciocínio",
     "agentActivitySummary": "{{reasoning}} etapas · {{tools}} chamadas de ferramenta",

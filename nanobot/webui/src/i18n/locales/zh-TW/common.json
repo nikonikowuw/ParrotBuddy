@@ -1117,6 +1117,7 @@
     "reasoningTools": "推理 · {{count}} 個工具",
     "reasoningToolsSingular": "推理 · 1 個工具",
     "reasoning": "思考過程",
+    "references": "關聯參考文檔",
     "reasoningStreaming": "正在思考…",
     "reasoningSummary": "推理",
     "agentActivitySummary": "{{reasoning}} 步 · {{tools}} 次工具呼叫",

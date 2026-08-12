@@ -1218,6 +1218,8 @@ class WebSocketChannel(BaseChannel):
                 "text": delta,
             }
             self._stream_text_buffers.setdefault(stream_key, []).append(delta)
+        if stream_end:
+            body["resuming"] = resuming
         if stream_id is not None:
             body["stream_id"] = stream_id
         self._transcripts.prepare_and_append(

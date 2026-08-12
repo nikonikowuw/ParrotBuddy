@@ -109,6 +109,7 @@ export function ThreadMessages({
               ) : (
                 <MessageBubble
                   message={unit.message}
+                  activityMessages={prev?.type === "activity" ? prev.messages : undefined}
                   showAssistantCopyAction={
                     unit.message.role === "assistant"
                       ? copyFlags[index]

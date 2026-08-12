@@ -183,8 +183,7 @@ class LightRagQueryTool(Tool):
                 lines = [
                     f"LightRAG knowledge base active for this turn (scope: {scope}). "
                     "For questions that could be informed by this indexed knowledge, "
-                    "call the lightrag_query tool first (with the user's question as "
-                    "`query`) before answering."
+                    "call the lightrag_query tool first (with the user's question as `query`) before answering."
                 ]
             else:
                 lines = [
@@ -237,7 +236,14 @@ class LightRagQueryTool(Tool):
         targets = self._resolve_target_servers_for_request(request)
         return ", ".join(server.name for server in targets)
 
-    def _format_server_section(self, server_name: str, data: dict[str, Any], include_refs: bool) -> str:
+    def _format_server_section(
+        self,
+        server_name: str,
+        data: dict[str, Any],
+        include_refs: bool,
+        api_base: str = "",
+        api_key: str | None = None,
+    ) -> str:
         response = str(data.get("response") or "").strip()
         lines = [f"## Knowledge Base: {server_name}"]
         if response:
@@ -249,7 +255,16 @@ class LightRagQueryTool(Tool):
                     continue
                 path = str(ref.get("file_path") or ref.get("path") or "")
                 rid = str(ref.get("reference_id") or ref.get("id") or "")
-                head = f"{i}. {path} (id:{rid})" if path and rid else f"{i}. {path or rid or ''}"
+                if path:
+                    if api_base:
+                        from urllib.parse import quote
+                        clean_rel_path = quote(path.replace("\\", "/").lstrip("/"))
+                        file_url = f"/api/lightrag/file/{quote(server_name)}/{clean_rel_path}"
+                        head = f"{i}. [{path}]({file_url})" + (f" (id:{rid})" if rid else "")
+                    else:
+                        head = f"{i}. {path}" + (f" (id:{rid})" if rid else "")
+                else:
+                    head = f"{i}. {rid or ''}".strip()
                 lines.append(head)
                 content = ref.get("content")
                 if isinstance(content, list) and content:
@@ -319,7 +334,15 @@ class LightRagQueryTool(Tool):
                     return _server_error(server.name, f"non-JSON - {exc}")
                 if not isinstance(data, dict):
                     return _server_error(server.name, "unexpected payload")
-                return ToolResult(self._format_server_section(server.name, data, inc_refs))
+                return ToolResult(
+                    self._format_server_section(
+                        server.name,
+                        data,
+                        inc_refs,
+                        api_base=server.api_base,
+                        api_key=server.api_key,
+                    )
+                )
         except httpx.RequestError as exc:
             logger.warning("LightRAG query failed for {}: {}", server.name, exc)
             return _server_error(server.name, f"request failed - {exc}")

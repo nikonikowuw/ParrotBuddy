@@ -49,6 +49,61 @@ describe("MarkdownTextRenderer", () => {
     );
   });
 
+  it("renders LightRAG document URL file reference as a file chip with branded icon", () => {
+    const { container } = render(
+      <MarkdownTextRenderer>
+        {"1. [发票文件.pdf](http://127.0.0.1:9621/documents/file/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf)"}
+      </MarkdownTextRenderer>,
+    );
+
+    const chip = screen.getByTestId("inline-file-path");
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent("发票文件.pdf");
+    expect(container.querySelector("a")).toHaveAttribute(
+      "href",
+      "/api/lightrag/file/default/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf",
+    );
+  });
+
+  it("renders gateway LightRAG document URL as a file chip", () => {
+    const { container } = render(
+      <MarkdownTextRenderer>
+        {"1. [发票文件.pdf](/api/lightrag/file/KB-1/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf) (id:1)"}
+      </MarkdownTextRenderer>,
+    );
+
+    const chip = screen.getByTestId("inline-file-path");
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent("发票文件.pdf");
+    expect(chip).toHaveAttribute(
+      "aria-label",
+      "发票文件.pdf",
+    );
+    expect(container.querySelector("a")).toHaveAttribute(
+      "href",
+      "/api/lightrag/file/KB-1/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf",
+    );
+  });
+
+  it("keeps external file URLs as plain links (not file chips)", () => {
+    const onOpenFilePreview = vi.fn();
+    const { container } = render(
+      <MarkdownTextRenderer onOpenFilePreview={onOpenFilePreview}>
+        {"See [paper](https://arxiv.org/pdf/2401.00001.pdf) for details."}
+      </MarkdownTextRenderer>,
+    );
+
+    expect(screen.queryByTestId("inline-file-path")).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "paper" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://arxiv.org/pdf/2401.00001.pdf",
+    );
+    expect(link).toHaveClass("text-blue-500", "dark:text-blue-300");
+    expect(onOpenFilePreview).not.toHaveBeenCalled();
+    expect(container).not.toHaveTextContent("2401.00001");
+  });
+
   it("renders glob file links as plain text instead of preview targets", () => {
     const onOpenFilePreview = vi.fn();
     const { container } = render(

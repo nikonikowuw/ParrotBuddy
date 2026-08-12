@@ -1862,6 +1862,86 @@ describe("useNanobotStream", () => {
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps streaming across a long tool-boundary stream_end", () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeClient();
+      const { result } = renderHook(() => useNanobotStream("chat-long-tool", EMPTY_MESSAGES), {
+        wrapper: wrap(fake.client),
+      });
+
+      act(() => {
+        fake.emit("chat-long-tool", {
+          event: "stream_end",
+          chat_id: "chat-long-tool",
+          resuming: true,
+        });
+        vi.advanceTimersByTime(1_500);
+      });
+
+      expect(result.current.isStreaming).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the send-stop state when a running status resumes", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-status-resume", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      result.current.send("continue working");
+      result.current.stop();
+    });
+    expect(result.current.isStreaming).toBe(false);
+
+    act(() => {
+      fake.emit("chat-status-resume", {
+        event: "goal_status",
+        chat_id: "chat-status-resume",
+        status: "running",
+        started_at: 1700,
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("reopens streaming when tool progress arrives after the stream fallback", () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeClient();
+      const { result } = renderHook(() => useNanobotStream("chat-progress-resume", EMPTY_MESSAGES), {
+        wrapper: wrap(fake.client),
+      });
+
+      act(() => {
+        result.current.send("continue after the tool");
+        fake.emit("chat-progress-resume", {
+          event: "stream_end",
+          chat_id: "chat-progress-resume",
+        });
+        vi.advanceTimersByTime(1_500);
+      });
+      expect(result.current.isStreaming).toBe(false);
+
+      act(() => {
+        fake.emit("chat-progress-resume", {
+          event: "message",
+          chat_id: "chat-progress-resume",
+          kind: "progress",
+          text: "Tool completed",
+        });
+      });
+
+      expect(result.current.isStreaming).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("replaces streamed content with final stream_end text when provided", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-stream-final", EMPTY_MESSAGES), {

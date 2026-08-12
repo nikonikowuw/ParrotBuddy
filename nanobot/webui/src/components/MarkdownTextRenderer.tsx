@@ -19,6 +19,7 @@ import {
   isFilePatternReference,
   isLikelyFilePath,
 } from "@/components/FileReferenceChip";
+import { fileReferenceFromUrl } from "@/lib/document-references";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { inferMediaKind } from "@/lib/media";
 import { faviconUrls } from "@/lib/provider-brand";
@@ -271,6 +272,7 @@ function cleanLinkPreviewText(value: string): string {
 function inlineLinkPreviewFromChildren(children: ReactNode): InlineLinkPreview | null {
   const { text: rawText, href } = linkPreviewParts(children);
   if (!href) return null;
+  if (fileReferenceFromUrl(href) || fileReferenceFromLink(href)) return null;
 
   let url: URL;
   try {
@@ -463,6 +465,27 @@ export default function MarkdownTextRenderer({
         );
       },
       a({ href, children: markdownChildren, ...props }) {
+        const urlRef = fileReferenceFromUrl(href);
+        if (urlRef) {
+          const label = nodeText(markdownChildren).trim();
+          const cleanLabel = label.replace(/^(?:📄|📝|📊|🖼️|📦|🎵|🎥|💻|📎)\s*/u, "").trim();
+          return (
+            <a
+              href={urlRef.rewrittenHref || href}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="not-prose inline-flex max-w-full align-baseline no-underline"
+              {...props}
+            >
+              <FileReferenceChip
+                path={cleanLabel || urlRef.name}
+                tooltipPath={urlRef.fullPath}
+                display="name"
+              />
+            </a>
+          );
+        }
+
         const filePath = fileReferenceFromLink(href);
         if (filePath) {
           const label = nodeText(markdownChildren).trim();

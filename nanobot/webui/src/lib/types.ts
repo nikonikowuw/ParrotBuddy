@@ -1017,6 +1017,8 @@ export type InboundEvent =
       chat_id: string;
       stream_id?: string;
       text?: string;
+      /** True when this text segment ends because tool calls or another model iteration follow. */
+      resuming?: boolean;
     } & InboundTurnMetadata)
   | ({
       event: "reasoning_delta";

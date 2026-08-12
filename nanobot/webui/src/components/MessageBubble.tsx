@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  BookOpen,
   Check,
   ChevronRight,
   Clock3,
@@ -21,6 +22,8 @@ import { AttachmentTile } from "@/components/AttachmentTile";
 import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
+import { FileReferenceChip } from "@/components/FileReferenceChip";
+import { extractDocumentReferencesFromMessages } from "@/lib/document-references";
 import {
   Tooltip,
   TooltipContent,
@@ -43,6 +46,7 @@ import type {
 
 interface MessageBubbleProps {
   message: UIMessage;
+  activityMessages?: UIMessage[];
   /** When false, hide the assistant reply copy button (mid-turn text before more agent activity). Default true. */
   showAssistantCopyAction?: boolean;
   cliApps?: CliAppInfo[];
@@ -82,6 +86,7 @@ function ForkArrowIcon({ className }: { className?: string }) {
  */
 export function MessageBubble({
   message,
+  activityMessages,
   showAssistantCopyAction = true,
   cliApps = [],
   mcpPresets = [],
@@ -216,6 +221,37 @@ export function MessageBubble({
           >
             {message.content}
           </MarkdownText>
+          {(() => {
+            const referenceDocs = useMemo(() => {
+              if (message.role !== "assistant") return [];
+              return extractDocumentReferencesFromMessages(activityMessages, message.content);
+            }, [message.role, activityMessages, message.content]);
+
+            if (referenceDocs.length === 0) return null;
+            return (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+                <div className="flex items-center gap-1.5 font-medium text-muted-foreground mr-1">
+                  <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span>{t("message.references", { defaultValue: "Reference documents" })}</span>
+                </div>
+                {referenceDocs.map((doc) => (
+                  <a
+                    key={doc.href}
+                    href={doc.href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="not-prose inline-flex max-w-full align-baseline no-underline"
+                  >
+                    <FileReferenceChip
+                      path={doc.name}
+                      tooltipPath={doc.fullPath}
+                      display="name"
+                    />
+                  </a>
+                ))}
+              </div>
+            );
+          })()}
           {media.length > 0 ? <MessageMedia media={media} align="left" onOpenFilePreview={onOpenFilePreview} /> : null}
           {showAssistantFooterRow ? (
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>

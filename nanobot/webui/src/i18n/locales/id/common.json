@@ -1117,6 +1117,7 @@
     "reasoningTools": "Penalaran · {{count}} alat",
     "reasoningToolsSingular": "Penalaran · 1 alat",
     "reasoning": "Penalaran",
+    "references": "Dokumen referensi",
     "reasoningStreaming": "Berpikir…",
     "reasoningSummary": "Penalaran",
     "agentActivitySummary": "{{reasoning}} langkah · {{tools}} panggilan alat",

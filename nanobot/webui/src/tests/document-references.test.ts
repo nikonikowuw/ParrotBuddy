@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest";
+import {
+  extractDocumentReferencesFromMessages,
+  extractDocumentReferencesFromText,
+  fileReferenceFromUrl,
+} from "@/lib/document-references";
+import type { UIMessage } from "@/lib/types";
+
+describe("document-references", () => {
+  it("parses LightRAG document URL correctly", () => {
+    const res = fileReferenceFromUrl(
+      "http://127.0.0.1:9621/documents/file/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf?api_key=secret",
+    );
+    expect(res).not.toBeNull();
+    expect(res?.name).toBe("发票文件.pdf");
+    expect(res?.fullPath).toBe("发票文件.pdf");
+  });
+
+  it("parses gateway-proxied LightRAG document URL correctly", () => {
+    const res = fileReferenceFromUrl(
+      "/api/lightrag/file/KB-1/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf",
+    );
+    expect(res).not.toBeNull();
+    expect(res?.name).toBe("发票文件.pdf");
+    expect(res?.fullPath).toBe("发票文件.pdf");
+  });
+
+  it("parses nested gateway LightRAG document URLs", () => {
+    const res = fileReferenceFromUrl(
+      "/api/lightrag/file/proj1/docs/rag.pdf",
+    );
+    expect(res).toEqual({ name: "rag.pdf", fullPath: "docs/rag.pdf", rewrittenHref: "/api/lightrag/file/proj1/docs/rag.pdf" });
+  });
+
+  it("does not treat external URLs as file references", () => {
+    expect(
+      fileReferenceFromUrl("https://arxiv.org/pdf/2401.00001.pdf"),
+    ).toBeNull();
+    expect(fileReferenceFromUrl("https://example.com/report.pdf")).toBeNull();
+    expect(
+      fileReferenceFromUrl(
+        "https://github.com/user/repo/blob/main/docs/spec.md",
+      ),
+    ).toBeNull();
+    expect(fileReferenceFromUrl("https://example.com/logo.png")).toBeNull();
+    expect(fileReferenceFromUrl("https://example.com/page")).toBeNull();
+  });
+
+  it("does not collect external URLs as document references", () => {
+    const text =
+      "See https://arxiv.org/pdf/2401.00001.pdf and https://example.com/report.pdf";
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(0);
+  });
+
+  it("extracts gateway LightRAG references from numbered lines", () => {
+    const text =
+      "## Knowledge Base: KB-1\n1. [发票文件.pdf](/api/lightrag/file/KB-1/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf) (id:1)";
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toEqual({
+      name: "发票文件.pdf",
+      fullPath: "发票文件.pdf",
+      href: "/api/lightrag/file/KB-1/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf",
+    });
+  });
+
+  it("extracts document references from Markdown links and standalone URLs", () => {
+    const text = `
+      1. [/docs/rag.pdf](http://127.0.0.1:9621/documents/file/docs/rag.pdf?api_key=lk) (id:1)
+      Also check http://127.0.0.1:9621/documents/file/sub/report.xlsx
+    `;
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(2);
+    expect(refs[0]).toEqual({
+      name: "/docs/rag.pdf",
+      fullPath: "docs/rag.pdf",
+      href: "/api/lightrag/file/default/docs/rag.pdf",
+    });
+    expect(refs[1]).toEqual({
+      name: "report.xlsx",
+      fullPath: "sub/report.xlsx",
+      href: "/api/lightrag/file/default/sub/report.xlsx",
+    });
+  });
+
+  it("extracts document references from toolEvents when traces are not present", () => {
+    const activityMessages: UIMessage[] = [
+      {
+        id: "1",
+        role: "tool",
+        kind: "trace",
+        content: "used 2 tools",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            result: "## Knowledge Base: KB-1\n1. [发票文件.pdf](http://127.0.0.1:9621/documents/file/%E5%8F%91%E7%A5%A8%E6%96%87%E4%BB%B6.pdf) (id:1)",
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    const refs = extractDocumentReferencesFromMessages(activityMessages);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toBe("发票文件.pdf");
+    expect(refs[0].fullPath).toBe("发票文件.pdf");
+  });
+
+  it("extracts plain file path references without URLs from LightRAG tool output", () => {
+    const text = "## Knowledge Base: KB-1\n1. 发票文件.pdf (id:1)";
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toBe("发票文件.pdf");
+    expect(refs[0].fullPath).toBe("发票文件.pdf");
+  });
+});

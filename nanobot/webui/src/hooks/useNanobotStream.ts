@@ -858,13 +858,24 @@ export function useNanobotStream(
 
       if (ev.event === "stream_end") {
         const turn = turnFieldsFromEvent(ev, "answer");
+        const resuming = ev.resuming === true;
         flushPendingStreamEvents({
           closeAnswerSegment: true,
           ...(typeof ev.text === "string" ? { finalAnswerText: ev.text } : {}),
           turn,
         });
         if (suppressStreamUntilTurnEndRef.current) return;
-        scheduleStreamEndTimer(turn);
+        if (resuming) {
+          // ``stream_end`` closes only the current model text segment when
+          // tools will run next; the authoritative ``turn_end`` still owns
+          // the complete-turn transition.
+          cancelStreamEndTimer();
+          setIsStreaming(true);
+        } else {
+          // Keep a fallback for legacy servers that omit ``turn_end`` after
+          // a final stream segment. Tool-boundary segments skip this timer.
+          scheduleStreamEndTimer(turn);
+        }
         return;
       }
 
@@ -889,6 +900,8 @@ export function useNanobotStream(
 
       if (ev.event === "goal_status") {
         if (ev.status === "running" && typeof ev.started_at === "number") {
+          cancelStreamEndTimer();
+          setIsStreaming(true);
           setRunStartedAt(ev.started_at);
         } else {
           setRunStartedAt(null);
@@ -932,6 +945,13 @@ export function useNanobotStream(
           (ev.kind === "tool_hint" || ev.kind === "progress" || ev.kind === "reasoning")
         ) {
           return;
+        }
+        if (
+          !sideChannelEvent
+          && (ev.kind === "tool_hint" || ev.kind === "progress")
+        ) {
+          cancelStreamEndTimer();
+          setIsStreaming(true);
         }
         // Back-compat: a legacy ``kind: "reasoning"`` message (no streaming
         // partner) is treated as one complete delta + immediate end so the

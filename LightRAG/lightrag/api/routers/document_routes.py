@@ -4543,4 +4543,126 @@ def create_document_routes(
             logger.error(traceback.format_exc())
             raise internal_server_error(e)
 
+    @router.get(
+        "/file/{file_path:path}",
+        dependencies=[Depends(combined_auth)],
+    )
+    def get_document_file(file_path: str):
+        """
+        Download or view an indexed document file by file_path or filename.
+        Searches input_dir, __parsed__ directories, base_input_dir, working_dir,
+        and matches canonical basenames.
+        """
+        from fastapi.responses import FileResponse
+        from urllib.parse import unquote
+
+        clean_path = unquote(file_path).strip()
+        if not clean_path:
+            raise HTTPException(status_code=400, detail="Empty file path")
+
+        name = Path(clean_path).name
+
+        # Construct primary and fallback search roots
+        primary_roots: list[Path] = []
+        if doc_manager.input_dir:
+            primary_roots.append(doc_manager.input_dir)
+            primary_roots.append(doc_manager.input_dir / PARSED_DIR_NAME)
+        if doc_manager.base_input_dir and doc_manager.base_input_dir not in primary_roots:
+            primary_roots.append(doc_manager.base_input_dir)
+            primary_roots.append(doc_manager.base_input_dir / PARSED_DIR_NAME)
+        if hasattr(rag, "working_dir") and rag.working_dir:
+            w_dir = Path(rag.working_dir)
+            if w_dir not in primary_roots:
+                primary_roots.extend([w_dir, w_dir / "inputs", w_dir / PARSED_DIR_NAME])
+
+        cwd = Path.cwd()
+        fallback_roots = [
+            r for r in [
+                cwd / "inputs",
+                cwd / "inputs" / PARSED_DIR_NAME,
+                cwd / PARSED_DIR_NAME,
+            ] if r not in primary_roots
+        ]
+
+        def _create_file_response(target: Path) -> FileResponse:
+            import mimetypes
+
+            media_type, _ = mimetypes.guess_type(target.name)
+            if not media_type:
+                ext = target.suffix.lower()
+                if ext == ".pdf":
+                    media_type = "application/pdf"
+                elif ext in (".md", ".markdown", ".txt", ".log"):
+                    media_type = "text/plain; charset=utf-8"
+                elif ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+                    media_type = f"image/{'svg+xml' if ext == '.svg' else ext.lstrip('.')}"
+                elif ext == ".json":
+                    media_type = "application/json"
+                else:
+                    media_type = "application/octet-stream"
+
+            return FileResponse(
+                path=target,
+                media_type=media_type,
+                content_disposition_type="inline",
+                filename=target.name,
+            )
+
+        def _search_in_roots(roots_to_search: list[Path]) -> FileResponse | None:
+            valid_roots = []
+            seen = set()
+            for root in roots_to_search:
+                try:
+                    resolved = root.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        valid_roots.append(resolved)
+                except Exception:
+                    continue
+
+            # 1. Direct candidate paths check (enforcing root boundary)
+            for root_resolved in valid_roots:
+                for candidate in dict.fromkeys([root_resolved / clean_path, root_resolved / name]):
+                    try:
+                        resolved = candidate.resolve()
+                        if resolved.is_file() and resolved.is_relative_to(root_resolved):
+                            return _create_file_response(resolved)
+                    except Exception:
+                        continue
+
+            # 2. Canonical basename matching in root directories (handles hints/timestamps/archive suffixes)
+            target_canonical = canonicalize_archived_file_variant_basename(
+                name, strip_archive_suffix=True
+            )
+            for root_resolved in valid_roots:
+                try:
+                    for item in root_resolved.iterdir():
+                        if not item.is_file():
+                            continue
+                        item_canonical = canonicalize_archived_file_variant_basename(
+                            item.name, strip_archive_suffix=True
+                        )
+                        if item_canonical == target_canonical or item.name == name:
+                            item_resolved = item.resolve()
+                            if item_resolved.is_relative_to(root_resolved):
+                                return _create_file_response(item_resolved)
+                except Exception:
+                    continue
+            return None
+
+        # Search primary roots first (both exact and canonical)
+        match = _search_in_roots(primary_roots)
+        if match is not None:
+            return match
+
+        # Search fallback roots
+        match = _search_in_roots(fallback_roots)
+        if match is not None:
+            return match
+
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document file '{clean_path}' not found in knowledge base storage",
+        )
+
     return router

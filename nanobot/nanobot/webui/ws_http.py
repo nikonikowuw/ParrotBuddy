@@ -155,6 +155,7 @@ class GatewayHTTPHandler:
         self,
         *,
         config: Any,  # WebSocketConfig
+        root_config: Any,  # Config
         session_manager: SessionManager | None,
         static_dist_path: Path | None,
         runtime_model_name: Callable[[], str | None] | None,
@@ -174,6 +175,7 @@ class GatewayHTTPHandler:
         log: Any = logger,
     ) -> None:
         self.config = config
+        self.root_config = root_config
         self.session_manager = session_manager
         self.static_dist_path = static_dist_path
         self.runtime_model_name = runtime_model_name
@@ -810,6 +812,8 @@ class GatewayHTTPHandler:
     async def _dispatch_misc_routes(
         self, connection: Any, request: WsRequest, got: str
     ) -> Response | None:
+        if got.startswith("/api/lightrag/file/"):
+            return await self._handle_lightrag_file(request, got)
         if got == "/api/sessions":
             return await self._handle_sessions_list(request)
         if got == "/api/commands":
@@ -826,6 +830,59 @@ class GatewayHTTPHandler:
         if got == "/api/webui/sidebar-state/update":
             return self._handle_webui_sidebar_state_update(request)
         return None
+
+    async def _handle_lightrag_file(self, request: WsRequest, got: str) -> Response:
+        prefix = "/api/lightrag/file/"
+        rest = got[len(prefix):]
+        parts = rest.split("/", 1)
+        if len(parts) != 2:
+            return _http_error(400, "Invalid lightrag file path")
+
+        from urllib.parse import unquote
+        server_name = unquote(parts[0])
+        file_path = parts[1]
+
+        server = None
+        if hasattr(self.root_config, "lightrag") and hasattr(self.root_config.lightrag, "servers"):
+            for s in self.root_config.lightrag.servers:
+                if s.name == server_name:
+                    server = s
+                    break
+
+        if not server:
+            return _http_error(404, "LightRAG server not found")
+
+        import os
+
+        import httpx
+        from websockets.http11 import Response
+
+        api_base = server.api_base.rstrip("/")
+        url = f"{api_base}/documents/file/{file_path}"
+        headers = {}
+        effective_api_key = server.api_key or os.environ.get("LIGHTRAG_API_KEY")
+        if effective_api_key:
+            headers["X-API-Key"] = effective_api_key
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=headers, follow_redirects=True, timeout=30.0)
+                if resp.status_code != 200:
+                    return _http_error(resp.status_code, "LightRAG upstream error")
+
+                content_type = resp.headers.get("Content-Type", "application/octet-stream")
+                headers = [("Content-Type", content_type)]
+
+                import websockets
+                return Response(
+                    status_code=200,
+                    reason_phrase="OK",
+                    headers=websockets.datastructures.Headers(headers),
+                    body=resp.content,
+                )
+        except Exception as e:
+            self.log.error(f"LightRAG proxy error: {e}")
+            return _http_error(502, "Bad Gateway")
 
     def _handle_commands(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):

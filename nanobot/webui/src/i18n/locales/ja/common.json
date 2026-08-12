@@ -1117,6 +1117,7 @@
     "reasoningTools": "思考 · {{count}} 個のツール",
     "reasoningToolsSingular": "思考 · 1 個のツール",
     "reasoning": "思考",
+    "references": "参照ドキュメント",
     "reasoningStreaming": "思考中…",
     "reasoningSummary": "思考",
     "agentActivitySummary": "{{reasoning}} ステップ · ツール呼び出し {{tools}} 回",
