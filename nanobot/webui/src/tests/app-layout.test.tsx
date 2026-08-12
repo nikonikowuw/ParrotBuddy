@@ -2251,7 +2251,7 @@ describe("App layout", () => {
     render(<App />);
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    expect(within(sidebar).queryByRole("button", { name: "Documents" })).not.toBeInTheDocument();
+    expect(within(sidebar).queryByRole("button", { name: "Knowledge Base" })).not.toBeInTheDocument();
     expect(
       within(sidebar).queryByRole("button", { name: "Knowledge Graph" }),
     ).not.toBeInTheDocument();
@@ -2265,18 +2265,18 @@ describe("App layout", () => {
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     expect(within(sidebar).getByRole("button", { name: "Knowledge Graph" })).toBeInTheDocument();
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Knowledge Base" }));
 
     const frame = await screen.findByTitle("docs — LightRAG");
     expect(frame).toHaveAttribute(
       "src",
       "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light",
     );
-    expect(within(sidebar).getByRole("button", { name: "Documents" })).toHaveAttribute(
+    expect(within(sidebar).getByRole("button", { name: "Knowledge Base" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("Documents · nanobot");
+    expect(document.title).toBe("Knowledge Base · nanobot");
   });
 
   it("switches the embedded frame between Documents and Knowledge Graph", async () => {
@@ -2286,7 +2286,7 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Documents" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Knowledge Base" }));
     const docsFrame = await screen.findByTitle("docs — LightRAG");
     expect(docsFrame).toHaveAttribute("src", expect.stringContaining("tab=documents"));
 

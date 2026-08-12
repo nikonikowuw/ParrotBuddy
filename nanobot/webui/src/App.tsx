@@ -2024,7 +2024,7 @@ function Shell({
     }
     if (view === "documents") {
       document.title = t("app.documentTitle.chat", {
-        title: t("sidebar.documents", { defaultValue: "Documents" }),
+        title: t("sidebar.documents", { defaultValue: "Knowledge Base" }),
       });
       return;
     }

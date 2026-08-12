@@ -170,7 +170,7 @@ export function Sidebar(props: SidebarProps) {
           <>
             <SidebarActionButton
               collapsed={collapsed}
-              label={t("sidebar.documents")}
+              label={t("sidebar.documents", { defaultValue: "Knowledge Base" })}
               onClick={props.onOpenDocuments}
               active={props.activeUtility === "documents"}
               icon={<FileText className="h-4 w-4" />}

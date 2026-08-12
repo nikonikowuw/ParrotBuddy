@@ -153,7 +153,7 @@ export function LightRagEmbeddedView({
           )}
           <span className="truncate">
             {tab === "documents"
-              ? tx("sidebar.documents", "Documents")
+              ? tx("sidebar.documents", "Knowledge Base")
               : tx("sidebar.knowledgeGraph", "Knowledge Graph")}
           </span>
         </div>
