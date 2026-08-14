@@ -5039,6 +5039,9 @@ def convert_to_user_format(
             "file_path": chunk.get("file_path", "unknown_source"),
             "chunk_id": chunk.get("chunk_id", ""),
         }
+        media = chunk.get("media")
+        if media:
+            chunk_data["media"] = media
         formatted_chunks.append(chunk_data)
 
     logger.debug(
@@ -5125,10 +5128,40 @@ def generate_reference_list_from_chunks(
             chunk_copy["reference_id"] = ""
         updated_chunks.append(chunk_copy)
 
-    # 5. Build reference_list
+    # 5. Build reference_list, aggregating and deduplicating media from the
+    # chunks grouped under each parent file_path.  Duplicates are removed by
+    # a stable (type, path) key while retaining the first occurrence, so a
+    # parent document can carry multiple distinct retrieved images without
+    # repeating them when several chunks share the same media item.
+    media_by_file_path: dict[str, list[dict[str, Any]]] = {}
+    seen_media: dict[str, set[tuple[str, str]]] = {}
+    for chunk in chunks:
+        file_path = chunk.get("file_path")
+        for media_item in chunk.get("media") or []:
+            if not isinstance(media_item, dict):
+                continue
+            media_key = (
+                str(media_item.get("type") or ""),
+                str(media_item.get("path") or ""),
+            )
+            if not media_key[1]:
+                continue
+            seen = seen_media.setdefault(file_path, set())
+            if media_key in seen:
+                continue
+            seen.add(media_key)
+            media_by_file_path.setdefault(file_path, []).append(media_item)
+
     reference_list = []
     for i, file_path in enumerate(unique_file_paths):
-        reference_list.append({"reference_id": str(i + 1), "file_path": file_path})
+        ref_entry: dict[str, Any] = {
+            "reference_id": str(i + 1),
+            "file_path": file_path,
+        }
+        media_list = media_by_file_path.get(file_path)
+        if media_list:
+            ref_entry["media"] = media_list
+        reference_list.append(ref_entry)
 
     return reference_list, updated_chunks
 

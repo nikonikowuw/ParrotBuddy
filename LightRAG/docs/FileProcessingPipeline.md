@@ -675,6 +675,12 @@ File enqueue and extraction results are written into `full_docs`:
 - When duplicate content hashes are found during scanning or parsing, the input file is likewise moved to `__parsed__`; this `doc_status` entry is kept as `FAILED duplicate` for tracking.
 - File moves only act on the current input file and do not overwrite or move existing document source files. If a file with the same name already exists at the destination, the system automatically appends `_001`, `_002`, etc., e.g., `report.pdf` is archived as `report_001.pdf`, `report_002.pdf`. If the analysis result directory name is already taken by a regular file, a number is also appended, e.g., `report.docx.parsed_001/`.
 
+#### Retrieved media metadata and re-indexing
+
+Drawings that pass VLM analysis are exposed as additive `media` metadata on the retrieved multimodal chunk and on the parent-document reference in `/query`, `/query/stream`, and `/query/data`. Each media item carries the sidecar-relative asset path (e.g. `report.blocks.assets/image.png`), the image format, and the indexed VLM `description`; the parent document path remains in `file_path`. Nanobot renders each retrieved image as a separate Markdown image line built from its gateway URL.
+
+**Migration:** `media` is additive — clients that ignore the new field keep receiving the parent document citation. Existing persisted chunks predating this feature have the old shape and **cannot** gain `media` metadata automatically; no automatic vector/database migration is implemented. To populate media metadata for an affected document, delete and re-process / re-index it through the supported workflow (`DELETE /documents/{doc_id}`, then re-upload or re-scan). LightRAG and Nanobot should be deployed together for inline image-context rendering.
+
 ### 4.3 MinerU Raw Artifacts Directory `<base>.mineru_raw/`
 
 The `mineru` engine writes the complete artifacts returned by the MinerU service (`content_list.json` + optional `full.md` / `middle.json` / `layout.pdf` / `images/`, etc.) into the `__parsed__/<canonical filename>.mineru_raw/` directory during parsing, and writes `_manifest.json` as the integrity validation file.

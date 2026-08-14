@@ -50,7 +50,11 @@ from lightrag.kg.shared_storage import (
     reconcile_dead_pipeline_reservations,
     run_to_completion,
 )
-from lightrag.operate import merge_nodes_and_edges
+from lightrag.operate import (
+    ensure_workspace_has_media_flag,
+    mark_workspace_has_media,
+    merge_nodes_and_edges,
+)
 from lightrag.parser.base import ParseContext
 from lightrag.parser.llm_bridge import LLMBridgePipelineCancelled
 from lightrag.parser.registry import (
@@ -229,6 +233,45 @@ class _BatchRunContext:
     # lock directly while waiting on an LLM response.
     pipeline_cancel_event: threading.Event | None = None
     processed_count: int = 0
+
+
+_URI_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+_DRIVE_LETTER_RE = re.compile(r"^[a-z]:[\\/]", re.IGNORECASE)
+
+
+def normalize_sidecar_media_path(raw: Any) -> str:
+    """Return a safe, normalized sidecar media path or ``""``.
+
+    Sidecar media paths (``path`` / ``img_path`` / ``image_path``) are
+    metadata consumed by VLM analysis and later exposed through the query
+    API, so they must be reduced to a clean relative path that stays inside
+    the parsed artifact directory:
+
+    - absolute filesystem paths, URL schemes and Windows drive/UNC forms
+      are rejected outright;
+    - ``..`` traversal segments and NUL bytes are rejected;
+    - backslashes are normalized to ``/`` and a leading ``./`` or ``/`` is
+      stripped so the result is a stable, portable relative path.
+
+    Returns ``""`` for empty or unsafe input; callers treat that as "no
+    media path" (skip the VLM analysis / emit no media item).
+    """
+    if raw is None:
+        return ""
+    value = str(raw).strip()
+    if not value or "\x00" in value:
+        return ""
+    if _URI_SCHEME_RE.match(value):
+        return ""
+    if _DRIVE_LETTER_RE.match(value) or value.startswith(("\\\\", "//")):
+        return ""
+    normalized = value.replace("\\", "/").lstrip("/")
+    parts = [p for p in normalized.split("/") if p not in ("", ".")]
+    if not parts:
+        return ""
+    if ".." in parts:
+        return ""
+    return "/".join(parts)
 
 
 class _PipelineMixin:
@@ -2742,6 +2785,19 @@ class _PipelineMixin:
                     ctx.pipeline_status, ctx.pipeline_status_lock
                 )
 
+                # Media-flag bookkeeping for the query-time hydration gate: a
+                # chunk with media marks the workspace as media-bearing, and a
+                # one-time freshness probe marks freshly-built media-free
+                # workspaces so hydration can be skipped.  ``mark`` runs first
+                # so a fresh workspace ingesting media stays flagged as such.
+                if any(
+                    isinstance(c, dict) and c.get("media") for c in chunks.values()
+                ):
+                    mark_workspace_has_media(self.workspace)
+                await ensure_workspace_has_media_flag(
+                    self.workspace, self.text_chunks
+                )
+
                 # Stage 1: persist doc_status PROCESSING + chunks in parallel.
                 doc_status_task = asyncio.create_task(
                     self._upsert_doc_status_transition(
@@ -3892,15 +3948,26 @@ class _PipelineMixin:
             def _resolve_image_path(
                 path_str: str | None, sidecar_dir: Path
             ) -> Path | None:
-                if not path_str:
+                """Resolve a sidecar media path against the artifact directory.
+
+                Only relative paths whose resolved candidate stays inside the
+                parsed artifact directory are accepted.  Absolute paths,
+                URL/drive forms and traversal attempts resolve to ``None`` so
+                the caller records a ``skipped`` analysis instead of reading
+                an unrelated file.
+                """
+                normalized = normalize_sidecar_media_path(path_str)
+                if not normalized:
                     return None
-                candidate = Path(path_str)
-                if not candidate.is_absolute():
-                    sidecar_candidate = sidecar_dir / path_str
-                    if sidecar_candidate.exists() and sidecar_candidate.is_file():
-                        candidate = sidecar_candidate
-                if candidate.exists() and candidate.is_file():
-                    return candidate
+                try:
+                    root = sidecar_dir.resolve()
+                    resolved = (root / normalized).resolve()
+                except (OSError, ValueError):
+                    return None
+                if not resolved.is_relative_to(root):
+                    return None
+                if resolved.is_file():
+                    return resolved
                 return None
 
             def _failure_result(message: str) -> dict[str, Any]:
@@ -4776,6 +4843,35 @@ class _PipelineMixin:
                     "sidecar": sidecar_block,
                     "llm_cache_list": cache_list,
                 }
+                if kind == "drawing":
+                    # Additive media metadata: expose the retrieved image as
+                    # structured context alongside the parent document path.
+                    # ``file_path`` (set later by
+                    # build_chunks_dict_from_chunking_result) stays the parent
+                    # source document; ``media.path`` is the sidecar-relative
+                    # asset path inside the parsed artifact directory.
+                    # Normalize via the shared helper (accepting the legacy
+                    # ``img_path`` / ``image_path`` aliases) so old sidecars
+                    # keep producing a clean relative path and unsafe values
+                    # (absolute, traversal, URL/drive forms) emit no media.
+                    media_path = normalize_sidecar_media_path(
+                        item.get("path")
+                        or item.get("img_path")
+                        or item.get("image_path")
+                    )
+                    if media_path:
+                        media_format = str(item.get("format") or "").strip()
+                        if not media_format:
+                            media_format = Path(media_path).suffix.lower().lstrip(".")
+                        chunk_dict["media"] = [
+                            {
+                                "type": "image",
+                                "path": media_path,
+                                "format": media_format,
+                                "name": name,
+                                "description": description,
+                            }
+                        ]
                 if heading_dict is not None:
                     chunk_dict["heading"] = heading_dict
                 mm_chunks.append(chunk_dict)

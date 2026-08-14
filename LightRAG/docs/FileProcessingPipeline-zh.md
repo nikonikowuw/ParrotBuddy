@@ -675,6 +675,12 @@ selector → 子字典映射：F → `fixed_token`，R → `recursive_character`
 - 扫描或解析过程中发现内容 hash 重复时，该输入文件同样会移动到 `__parsed__`；本次 `doc_status` 保留为 `FAILED duplicate` 以便追踪。
 - 移动文件只作用于当前输入文件，不会覆盖或移动既有文档源文件。若目标目录已存在同名文件，系统会自动追加 `_001`、`_002` 等编号，例如 `report.pdf` 会依次归档为 `report_001.pdf`、`report_002.pdf`。若分析结果目录名已被普通文件占用，也会追加编号，例如 `report.docx.parsed_001/`。
 
+#### 检索媒体元数据与重新索引
+
+通过 VLM 分析的图片会以增量式 `media` 元数据暴露在检索到的多模态 chunk 以及父文档引用上（`/query`、`/query/stream`、`/query/data`）。每个 media 条目携带相对 sidecar 目录的资源路径（例如 `report.blocks.assets/image.png`）、图片格式以及索引时的 VLM `description`；父文档路径仍然保留在 `file_path` 中。Nanobot 会把每张检索到的图片渲染为基于 gateway URL 的独立 Markdown 图片行。
+
+**迁移说明：** `media` 是增量字段——忽略该新字段的客户端仍能收到父文档引用。早于此功能存在的已持久化 chunk 仍是旧结构，**无法**自动获得 `media` 元数据；本功能不提供自动的向量/数据库迁移。要为受影响的文档补充 media 元数据，需要通过受支持的流程删除并重新处理/重建索引（先 `DELETE /documents/{doc_id}`，再重新上传或重新扫描）。LightRAG 与 Nanobot 应一起部署，才能获得内联图片上下文渲染。
+
 ### 4.3 MinerU 原始产物目录 `<base>.mineru_raw/`
 
 `mineru` 引擎在解析过程中会把 MinerU 服务返回的完整产物（`content_list.json` + 可选的 `full.md` / `middle.json` / `layout.pdf` / `images/` 等）落到 `__parsed__/<规范文件名>.mineru_raw/` 目录下，并写入 `_manifest.json` 作为完整性校验文件。

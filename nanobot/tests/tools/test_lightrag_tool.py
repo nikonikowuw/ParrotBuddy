@@ -633,3 +633,235 @@ async def test_execute_uses_live_config_targets(monkeypatch):
 
     assert "## Knowledge Base: live" in result
     assert "ans" in result
+
+
+# --- retrieved media formatting ----------------------------------------------
+
+
+def test_format_server_section_emits_parent_link_and_media_context():
+    """The parent stays a numbered document link; each retrieved image gets
+    an indented, unnumbered Image-context line and Markdown image line."""
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/image.png",
+                        "format": "png",
+                        "name": "系统架构图",
+                        "description": "图中展示了系统模块之间的调用关系。",
+                    }
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    # Parent document citation unchanged.
+    assert "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
+    # Indexed VLM description as Image context.
+    assert "Image context: 系统架构图。图中展示了系统模块之间的调用关系。" in text
+    # Separate unnumbered Markdown image line with the gateway URL.
+    assert "![系统架构图](/api/lightrag/file/proj/demo.blocks.assets/image.png)" in text
+
+
+def test_format_server_section_multiple_media_emit_multiple_lines():
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/image.png",
+                        "format": "png",
+                        "name": "图A",
+                        "description": "模块关系",
+                    },
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/flow.png",
+                        "format": "png",
+                        "name": "图B",
+                        "description": "流程说明",
+                    },
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    assert text.count("Image context:") == 2
+    assert text.count("![") == 2
+    assert "demo.blocks.assets/flow.png" in text
+
+
+def test_format_server_section_skips_non_image_and_empty_media():
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {"type": "table", "path": "demo.blocks/t.json"},
+                    {"type": "image", "path": "   "},
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/img.png",
+                        "name": "图",
+                        "description": "描述",
+                    },
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    assert text.count("![") == 1
+    assert "Image context: 图。描述" in text
+    assert "t.json" not in text
+
+
+def test_format_server_section_without_media_is_unchanged():
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [{"reference_id": "1", "file_path": "demo.pdf"}],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    assert "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
+    assert "Image context" not in text
+    assert "![" not in text
+
+
+def test_format_server_section_media_without_api_base_uses_text():
+    """Without a gateway base the media path is surfaced as plain text
+    rather than a fabricated image URL."""
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/image.png",
+                        "name": "系统架构图",
+                        "description": "图中展示了系统模块之间的调用关系。",
+                    }
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section("proj", data, include_refs=True, api_base="")
+    assert "Image context: 系统架构图。图中展示了系统模块之间的调用关系。" in text
+    assert "Image media: demo.blocks.assets/image.png" in text
+    assert "![系统架构图](" not in text
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_active_scope_distinguishes_citations_from_media():
+    """The active-scope directive explains the document-vs-image distinction
+    and the preservation rules for image Markdown."""
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
+    block = await tool._provide_runtime_context(
+        RequestContext(
+            channel="test",
+            chat_id="t",
+            metadata={},
+            original_user_text="what is in the diagram?",
+        )
+    )
+    assert block is not None
+    assert "Image context:" in block.content
+    assert "Numbered document links" in block.content
+    assert "Do not turn a parent document link into an image" in block.content
+    assert "do not add image lines to the document-reference list manually" in block.content
+
+
+def test_format_server_section_escapes_untrusted_markdown():
+    """VLM-provided names/descriptions/paths are untrusted text: Markdown
+    specials must be escaped so a malicious server cannot inject links or
+    images into the rendered context."""
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo[1].pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "img [x].png",
+                        "format": "png",
+                        "name": "图![x](http://evil)",
+                        "description": "desc `code` *bold* [link](http://evil)",
+                    }
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    # No raw Markdown link/image may survive unescaped in the label/text.
+    assert "](http://evil)" not in text
+    assert "![x]" not in text
+    # The injected pieces are backslash-escaped instead.
+    assert "图\\!\\[x\\]" in text
+    assert "\\[link\\]" in text
+    assert "\\`code\\`" in text
+    assert "\\*bold\\*" in text
+    # The parent label is escaped too (brackets), while the URL keeps
+    # brackets percent-encoded so the gateway path is unambiguous.
+    assert "1. [demo\\[1\\].pdf](" in text
+    assert "demo%5B1%5D.pdf" in text
+
+
+def test_format_server_section_encodes_slash_in_server_name():
+    """A server name containing ``/`` must be percent-encoded (``%2F``) so
+    the gateway's path-splitting treats it as part of the server key, not a
+    path separator."""
+    tool = _tool(servers=[_server("proj/sub")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "img.png",
+                        "format": "png",
+                        "name": "图",
+                        "description": "描述",
+                    }
+                ],
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj/sub", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+    assert "/api/lightrag/file/proj%2Fsub/demo.pdf" in text
+    assert "/api/lightrag/file/proj%2Fsub/img.png" in text
+    assert "/api/lightrag/file/proj/sub/" not in text

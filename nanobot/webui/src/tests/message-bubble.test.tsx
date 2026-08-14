@@ -570,4 +570,33 @@ describe("MessageBubble", () => {
     expect(link).toHaveAttribute("download", "archive.zip");
     expect(screen.getByLabelText("File attachment")).toHaveTextContent("archive.zip");
   });
+
+  it("opens the preview panel when clicking a Reference documents entry", () => {
+    // Reference documents entries must behave like context references:
+    // clicking opens the right-side preview panel (via onOpenFilePreview with
+    // the document's relative path) instead of navigating to a new tab.
+    const onOpenFilePreview = vi.fn();
+    const message: UIMessage = {
+      id: "a-ref",
+      role: "assistant",
+      content: "1. [1810.04805v2.pdf](/api/lightrag/file/LightRAG/1810.04805v2.pdf)",
+      createdAt: Date.now(),
+    };
+
+    render(
+      <MessageBubble message={message} onOpenFilePreview={onOpenFilePreview} />,
+    );
+
+    // The context renders its own (non-interactive) chip for the same link;
+    // the Reference documents section renders an interactive one with
+    // role="button". Click the interactive one and expect the full path.
+    const chips = screen.getAllByTestId("inline-file-path");
+    const refChip = chips.find((c) => c.getAttribute("role") === "button");
+    expect(refChip).toBeDefined();
+    if (refChip) {
+      expect(refChip).toHaveTextContent("1810.04805v2.pdf");
+      fireEvent.click(refChip);
+    }
+    expect(onOpenFilePreview).toHaveBeenCalledWith("1810.04805v2.pdf");
+  });
 });

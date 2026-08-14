@@ -34,7 +34,7 @@ class GatewayServices:
 def build_gateway_services(
     *,
     config: Any,
-    root_config: Any,
+    root_config: Any = None,
     bus: Any,
     session_manager: Any | None,
     static_dist_path: Path | None,

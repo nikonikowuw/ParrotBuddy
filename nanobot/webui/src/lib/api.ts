@@ -221,6 +221,37 @@ export function fileRawUrl(
   return `${base}/api/sessions/${encodeURIComponent(key)}/file?${query}`;
 }
 
+/**
+ * Append the gateway API token as a query parameter to a gateway-proxied
+ * LightRAG file URL (``/api/lightrag/file/...``).
+ *
+ * ``<img>``/``<a>`` elements cannot send an ``Authorization`` header, so the
+ * token travels in the query string (the gateway accepts both forms).  URLs
+ * that are not gateway-proxied LightRAG files are returned unchanged.
+ */
+export function withGatewayToken(href: string, token: string): string {
+  if (!href || !token) return href;
+  try {
+    const isRelative = href.startsWith("/");
+    const url = isRelative ? new URL(href, "http://localhost") : new URL(href);
+    if (!url.pathname.startsWith("/api/lightrag/file/")) return href;
+
+    const cleanedPath = url.pathname.replace(/(?:%22|%27|["'\\])+$/gi, "").replace(/\/+$/, "");
+    if (cleanedPath !== url.pathname) {
+      url.pathname = cleanedPath;
+    }
+    if (!url.searchParams.has("token")) {
+      url.searchParams.set("token", token);
+    }
+    if (isRelative) {
+      return url.pathname + url.search + url.hash;
+    }
+    return url.toString();
+  } catch {
+    return href;
+  }
+}
+
 export async function fetchSessionAutomations(
   token: string,
   key: string,

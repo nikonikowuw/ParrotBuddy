@@ -360,3 +360,80 @@ class TestQueryStreamProtocolOrder:
 
         await iterator.aclose()
         assert cleanup_complete.is_set()
+
+
+class TestReferenceMediaSchema:
+    """The query schemas must expose nested retrieved-media metadata while
+    keeping the parent document path in file_path."""
+
+    def test_openapi_query_reference_declares_media(self):
+        client = _build_client()
+        spec = client.get("/openapi.json").json()
+
+        post_op = spec["paths"]["/query"]["post"]
+        ok_resp = post_op["responses"]["200"]
+        schema = ok_resp["content"]["application/json"]["schema"]
+        ref_items = schema["properties"]["references"]["items"]["properties"]
+        assert "media" in ref_items, "/query ReferenceItem must declare media"
+
+        media_schema = ref_items["media"]["items"]
+        media_props = media_schema["properties"]
+        assert set(media_props) == {"type", "path", "format", "name", "description"}
+        assert media_props["type"]["const"] == "image"
+        assert media_props["path"]["type"] == "string"
+
+    def test_stream_chunk_references_accept_nested_media(self):
+        """The streaming reference field must allow nested media objects, not
+        claim every reference value is a string."""
+        from lightrag.api.routers.query_routes import StreamChunkResponse
+
+        refs = [
+            {
+                "reference_id": "1",
+                "file_path": "demo.pdf",
+                "media": [
+                    {
+                        "type": "image",
+                        "path": "demo.blocks.assets/image.png",
+                        "format": "png",
+                        "name": "系统架构图",
+                        "description": "图中展示了系统模块之间的调用关系。",
+                    }
+                ],
+            }
+        ]
+        model = StreamChunkResponse(references=refs)
+        first = model.references[0]
+        assert first.file_path == "demo.pdf"
+        assert first.media[0].type == "image"
+        assert first.media[0].path == "demo.blocks.assets/image.png"
+
+    def test_query_response_media_model_round_trip(self):
+        from lightrag.api.routers.query_routes import QueryResponse, ReferenceMedia
+
+        media = ReferenceMedia(
+            type="image",
+            path="demo.blocks.assets/image.png",
+            format="png",
+            name="系统架构图",
+            description="图中展示了系统模块之间的调用关系。",
+        )
+        payload = media.model_dump()
+        assert payload["path"] == "demo.blocks.assets/image.png"
+        assert payload["type"] == "image"
+
+        response = QueryResponse(
+            response="ok",
+            references=[
+                {
+                    "reference_id": "1",
+                    "file_path": "demo.pdf",
+                    "media": [payload],
+                }
+            ],
+        )
+        dumped = response.model_dump(exclude_none=True)
+        assert dumped["references"][0]["file_path"] == "demo.pdf"
+        assert dumped["references"][0]["media"][0]["description"] == (
+            "图中展示了系统模块之间的调用关系。"
+        )

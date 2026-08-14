@@ -35,6 +35,7 @@ import pytest
 from lightrag import LightRAG, ROLES, RoleLLMConfig
 from lightrag.exceptions import MultimodalAnalysisError
 from lightrag.utils import EmbeddingFunc, Tokenizer
+from lightrag.utils_pipeline import build_chunks_dict_from_chunking_result
 
 
 @pytest.fixture
@@ -155,7 +156,9 @@ def _write_sidecar_fixtures(tmp_path: Path) -> tuple[str, dict, Path]:
                 "drawings": {
                     "im-001": {
                         "caption": "Figure 1",
-                        "path": str(image_path),
+                        # Sidecar media paths are relative to the parsed
+                        # artifact directory; absolute paths are rejected.
+                        "path": "fig1.png",
                     }
                 }
             }
@@ -403,7 +406,7 @@ async def test_unsupported_vector_format_writes_skipped(tmp_path):
                     "drawings": {
                         "im-001": {
                             "caption": "vector diagram",
-                            "path": str(wmf_path),
+                            "path": "image1.wmf",
                             "format": "wmf",
                         }
                     }
@@ -455,7 +458,7 @@ async def test_tiny_image_writes_skipped_without_vlm_call(tmp_path):
                     "drawings": {
                         "im-001": {
                             "caption": "tiny icon",
-                            "path": str(img_path),
+                            "path": "tiny.png",
                         }
                     }
                 }
@@ -1309,3 +1312,306 @@ async def test_table_missing_format_hard_fails(tmp_path):
             content="<table><tr><td>A</td></tr></table>",
         )
     assert "tb-001" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_vlm_image_inputs_bytes_match_fixture(tmp_path):
+    """The VLM must receive the exact sidecar asset bytes: decode the base64
+    image_inputs payload and compare it byte-for-byte with the fixture."""
+    call_log: list[dict] = []
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock(call_log)
+    )
+    await rag.initialize_storages()
+    try:
+        doc_id, parsed_data, _ = _write_sidecar_fixtures(tmp_path)
+        await rag.analyze_multimodal(
+            doc_id=doc_id,
+            file_path="fixture.pdf",
+            parsed_data=parsed_data,
+            process_options="i",
+        )
+        assert len(call_log) == 1
+        image_inputs = call_log[0]["kwargs"].get("image_inputs")
+        assert image_inputs is not None
+        assert len(image_inputs) == 1
+        payload = image_inputs[0]
+        assert payload.get("mime_type") == "image/png"
+        decoded = base64.b64decode(payload["base64"])
+        assert decoded == PNG_BYTES
+    finally:
+        await rag.finalize_storages()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_path", ["/etc/passwd", "../outside.png"])
+async def test_absolute_and_traversal_sidecar_paths_skipped(tmp_path, bad_path):
+    """Absolute and traversal sidecar paths must not produce a VLM
+    description from an unrelated file; the item is recorded as skipped."""
+    call_log: list[dict] = []
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock(call_log)
+    )
+    await rag.initialize_storages()
+    try:
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+        # A decoy outside the parsed dir that a traversal path must not reach.
+        (tmp_path / "outside.png").write_bytes(PNG_BYTES)
+
+        blocks_path = parsed_dir / "doc.blocks.jsonl"
+        blocks_path.write_text(
+            json.dumps({"type": "meta", "doc_id": "doc-1"}) + "\n",
+            encoding="utf-8",
+        )
+        sidecar_path = parsed_dir / "doc.drawings.json"
+        sidecar_path.write_text(
+            json.dumps(
+                {
+                    "drawings": {
+                        "im-001": {
+                            "caption": "decoy",
+                            "path": bad_path,
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        await rag.analyze_multimodal(
+            doc_id="doc-1",
+            file_path="fixture.pdf",
+            parsed_data={"blocks_path": str(blocks_path)},
+            process_options="i",
+        )
+        assert call_log == []
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        result = payload["drawings"]["im-001"]["llm_analyze_result"]
+        assert result["status"] == "skipped"
+        assert "image file not found" in result["message"]
+    finally:
+        await rag.finalize_storages()
+
+
+@pytest.mark.asyncio
+async def test_mm_chunk_media_from_successful_drawing(tmp_path):
+    """A successful drawing sidecar produces a chunk whose additive media
+    item carries the VLM description, while persistence keeps the parent
+    file_path unchanged (never replaced by the asset path)."""
+    call_log: list[dict] = []
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock(call_log)
+    )
+    await rag.initialize_storages()
+    try:
+        doc_id, parsed_data, _ = _write_sidecar_fixtures(tmp_path)
+        await rag.analyze_multimodal(
+            doc_id=doc_id,
+            file_path="demo.pdf",
+            parsed_data=parsed_data,
+            process_options="i",
+        )
+
+        mm_chunks = rag._build_mm_chunks_from_sidecars(
+            doc_id=doc_id,
+            file_path="demo.pdf",
+            blocks_path=parsed_data["blocks_path"],
+            base_order_index=0,
+        )
+        assert len(mm_chunks) == 1
+        chunk = mm_chunks[0]
+        # The builder itself never writes a file_path; parent provenance is
+        # assigned by build_chunks_dict_from_chunking_result below.
+        assert "file_path" not in chunk
+        media = chunk["media"]
+        assert len(media) == 1
+        item = media[0]
+        assert item["type"] == "image"
+        assert item["path"] == "fig1.png"
+        assert item["format"] == "png"
+        assert item["name"] == "fig-1"
+        assert item["description"] == "concise figure description"
+
+        stored = build_chunks_dict_from_chunking_result(
+            mm_chunks, doc_id=doc_id, file_path="demo.pdf"
+        )
+        assert len(stored) == 1
+        persisted = next(iter(stored.values()))
+        assert persisted["file_path"] == "demo.pdf"
+        assert persisted["media"] == media
+    finally:
+        await rag.finalize_storages()
+
+
+@pytest.mark.asyncio
+async def test_drawing_without_path_has_no_media(tmp_path):
+    """A successful drawing sidecar without a media path still produces a
+    searchable multimodal chunk, but must NOT fabricate a media item."""
+    call_log: list[dict] = []
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock(call_log)
+    )
+    await rag.initialize_storages()
+    try:
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+        blocks_path = parsed_dir / "doc.blocks.jsonl"
+        blocks_path.write_text(
+            json.dumps({"type": "meta", "doc_id": "doc-1"}) + "\n",
+            encoding="utf-8",
+        )
+        sidecar_path = parsed_dir / "doc.drawings.json"
+        sidecar_path.write_text(
+            json.dumps(
+                {
+                    "drawings": {
+                        "im-001": {
+                            "caption": "legacy drawing without path",
+                            "llm_analyze_result": {
+                                "name": "fig-1",
+                                "type": "Chart",
+                                "description": "concise figure description",
+                                "analyze_time": 1700000000,
+                                "status": "success",
+                                "message": "",
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        mm_chunks = rag._build_mm_chunks_from_sidecars(
+            doc_id="doc-1",
+            file_path="demo.pdf",
+            blocks_path=str(blocks_path),
+            base_order_index=0,
+        )
+        assert len(mm_chunks) == 1
+        assert "media" not in mm_chunks[0]
+    finally:
+        await rag.finalize_storages()
+
+
+@pytest.mark.asyncio
+async def test_legacy_img_path_alias_yields_normalized_media(tmp_path):
+    """A drawing item carrying the legacy ``img_path`` alias (instead of
+    ``path``) must still produce a normalized relative media item, and
+    backslash/leading-slash variants are normalized to a clean path."""
+    call_log: list[dict] = []
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock(call_log)
+    )
+    await rag.initialize_storages()
+    try:
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+        blocks_path = parsed_dir / "doc.blocks.jsonl"
+        blocks_path.write_text(
+            json.dumps({"type": "meta", "doc_id": "doc-1"}) + "\n",
+            encoding="utf-8",
+        )
+        sidecar_path = parsed_dir / "doc.drawings.json"
+        sidecar_path.write_text(
+            json.dumps(
+                {
+                    "drawings": {
+                        "im-001": {
+                            "caption": "legacy drawing",
+                            "img_path": "./doc.blocks.assets\\fig1.png",
+                            "llm_analyze_result": {
+                                "name": "fig-1",
+                                "type": "Chart",
+                                "description": "concise figure description",
+                                "analyze_time": 1700000000,
+                                "status": "success",
+                                "message": "",
+                            },
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        mm_chunks = rag._build_mm_chunks_from_sidecars(
+            doc_id="doc-1",
+            file_path="demo.pdf",
+            blocks_path=str(blocks_path),
+            base_order_index=0,
+        )
+        assert len(mm_chunks) == 1
+        media = mm_chunks[0]["media"]
+        assert len(media) == 1
+        # Backslashes and the leading "./" are normalized to a clean
+        # relative path; the asset never replaces the parent file_path.
+        assert media[0]["path"] == "doc.blocks.assets/fig1.png"
+        assert media[0]["format"] == "png"
+    finally:
+        await rag.finalize_storages()
+
+
+@pytest.mark.asyncio
+async def test_url_and_drive_sidecar_paths_emit_no_media(tmp_path):
+    """URL schemes and Windows drive forms in a sidecar path must never
+    surface as media metadata (or be read as files)."""
+    rag = _build_rag(
+        tmp_path, vlm_process_enable=True, vlm_func=_make_vlm_mock([])
+    )
+    await rag.initialize_storages()
+    try:
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+        blocks_path = parsed_dir / "doc.blocks.jsonl"
+        blocks_path.write_text(
+            json.dumps({"type": "meta", "doc_id": "doc-1"}) + "\n",
+            encoding="utf-8",
+        )
+        sidecar_path = parsed_dir / "doc.drawings.json"
+        sidecar_path.write_text(
+            json.dumps(
+                {
+                    "drawings": {
+                        "im-001": {
+                            "caption": "bad path",
+                            "path": "http://evil.example/x.png",
+                            "llm_analyze_result": {
+                                "name": "fig-1",
+                                "type": "Chart",
+                                "description": "concise figure description",
+                                "analyze_time": 1700000000,
+                                "status": "success",
+                                "message": "",
+                            },
+                        },
+                        "im-002": {
+                            "caption": "bad drive path",
+                            "path": "C:\\Windows\\system32\\x.png",
+                            "llm_analyze_result": {
+                                "name": "fig-2",
+                                "type": "Chart",
+                                "description": "concise figure description",
+                                "analyze_time": 1700000000,
+                                "status": "success",
+                                "message": "",
+                            },
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        mm_chunks = rag._build_mm_chunks_from_sidecars(
+            doc_id="doc-1",
+            file_path="demo.pdf",
+            blocks_path=str(blocks_path),
+            base_order_index=0,
+        )
+        # Both chunks stay searchable but must NOT carry a media item.
+        assert len(mm_chunks) == 2
+        assert all("media" not in c for c in mm_chunks)
+    finally:
+        await rag.finalize_storages()

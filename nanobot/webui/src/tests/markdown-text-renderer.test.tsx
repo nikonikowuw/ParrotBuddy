@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import MarkdownTextRenderer from "@/components/MarkdownTextRenderer";
+import { withGatewayToken } from "@/lib/api";
+import { ClientProvider } from "@/providers/ClientProvider";
 
 describe("MarkdownTextRenderer", () => {
   it("renders clickable markdown links in blue", () => {
@@ -422,5 +424,93 @@ describe("MarkdownTextRenderer", () => {
     );
 
     expect(container.querySelector(".katex")).toBeInTheDocument();
+  });
+});
+
+  it("renders retrieved LightRAG media image with its exact gateway URL", () => {
+    render(
+      <MarkdownTextRenderer>
+        {"![系统架构图](/api/lightrag/file/proj/demo.blocks.assets/image.png)"}
+      </MarkdownTextRenderer>,
+    );
+
+    const image = screen.getByRole("img", { name: "系统架构图" });
+    expect(image).toHaveAttribute(
+      "src",
+      "/api/lightrag/file/proj/demo.blocks.assets/image.png",
+    );
+  });
+
+  it("renders the parent document link as a file chip and the media image inline", () => {
+    const { container } = render(
+      <MarkdownTextRenderer>
+        {
+          "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)\n   Image context: 系统架构图。图中展示了系统模块之间的调用关系。\n   ![系统架构图](/api/lightrag/file/proj/demo.blocks.assets/image.png)"
+        }
+      </MarkdownTextRenderer>,
+    );
+
+    // The parent link becomes a file-reference chip.
+    const chip = screen.getByTestId("inline-file-path");
+    expect(chip).toHaveTextContent("demo.pdf");
+    // The media image renders inline with the exact URL.
+    const image = screen.getByRole("img", { name: "系统架构图" });
+    expect(image).toHaveAttribute(
+      "src",
+      "/api/lightrag/file/proj/demo.blocks.assets/image.png",
+    );
+    expect(container).toHaveTextContent("Image context: 系统架构图。");
+  });
+
+
+describe("withGatewayToken", () => {
+  it("appends the gateway token only to proxied LightRAG file URLs", () => {
+    expect(withGatewayToken("/api/lightrag/file/proj/demo.pdf", "tok")).toBe(
+      "/api/lightrag/file/proj/demo.pdf?token=tok",
+    );
+    expect(withGatewayToken("/api/lightrag/file/proj/img.png?x=1", "tok")).toBe(
+      "/api/lightrag/file/proj/img.png?x=1&token=tok",
+    );
+    expect(withGatewayToken("http://my-server.com:8765/api/lightrag/file/proj/demo.pdf", "tok")).toBe(
+      "http://my-server.com:8765/api/lightrag/file/proj/demo.pdf?token=tok",
+    );
+    // Non-gateway URLs are left untouched.
+    expect(withGatewayToken("http://evil.example/x.png", "tok")).toBe(
+      "http://evil.example/x.png",
+    );
+    // No token -> unchanged.
+    expect(withGatewayToken("/api/lightrag/file/proj/demo.pdf", "")).toBe(
+      "/api/lightrag/file/proj/demo.pdf",
+    );
+  });
+});
+
+describe("MarkdownTextRenderer token propagation", () => {
+  it("passes the gateway token to proxied LightRAG file links and images", () => {
+    render(
+      <ClientProvider client={{} as import("@/lib/nanobot-client").NanobotClient} token="tok" modelName={null}>
+        <MarkdownTextRenderer>
+          {"1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)\n\n![图](/api/lightrag/file/proj/demo.blocks.assets/image.png)"}
+        </MarkdownTextRenderer>
+      </ClientProvider>,
+    );
+
+    const link = screen.getByRole("link", { name: /demo\.pdf/ });
+    expect(link.getAttribute("href")).toContain("?token=tok");
+
+    const img = document.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toContain("?token=tok");
+  });
+
+  it("leaves LightRAG file URLs unchanged when no token is available", () => {
+    render(
+      <MarkdownTextRenderer>
+        {"1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)"}
+      </MarkdownTextRenderer>,
+    );
+
+    const link = screen.getByRole("link", { name: /demo\.pdf/ });
+    expect(link.getAttribute("href")).toBe("/api/lightrag/file/proj/demo.pdf");
   });
 });

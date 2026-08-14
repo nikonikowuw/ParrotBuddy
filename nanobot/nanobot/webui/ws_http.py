@@ -518,6 +518,29 @@ class GatewayHTTPHandler:
                 self._file_preview_blocking, decoded_key, path
             )
         except WebUIFilePreviewError as e:
+            if e.status == 404:
+                # The assistant's answer often cites retrieved LightRAG
+                # documents by bare filename (e.g. ``[demo.pdf](demo.pdf)``),
+                # which the WebUI routes through the session file preview
+                # instead of the ``/api/lightrag/file/...`` gateway route.  The
+                # file is not in the nanobot workspace, so fall back to the
+                # session's selected LightRAG workspaces before giving up.
+                fetched = await self._fetch_lightrag_document_file(
+                    decoded_key, path or ""
+                )
+                if fetched is not None:
+                    content, mime, filename = fetched
+                    return _http_json_response(
+                        {
+                            "kind": "binary",
+                            "path": path or "",
+                            "display_path": path or "",
+                            "project_path": "",
+                            "filename": filename,
+                            "mime_type": mime,
+                            "size": len(content),
+                        }
+                    )
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
 
@@ -546,7 +569,19 @@ class GatewayHTTPHandler:
                 self._serve_file_blocking, decoded_key, path
             )
         except WebUIFilePreviewError as e:
-            return _http_error(e.status, e.message)
+            if e.status == 404:
+                # Same LightRAG fallback as the file-preview route: a bare
+                # filename reference to a retrieved document lives in the
+                # knowledge base, not the nanobot workspace.
+                fetched = await self._fetch_lightrag_document_file(
+                    decoded_key, path or ""
+                )
+                if fetched is not None:
+                    content, mime, filename = fetched
+                else:
+                    return _http_error(e.status, e.message)
+            else:
+                return _http_error(e.status, e.message)
         extra_headers: list[tuple[str, str]] = [
             ("Content-Disposition", f"inline; filename*=UTF-8''{quote(filename, safe='')}"),
             ("X-Content-Type-Options", "nosniff"),
@@ -566,6 +601,66 @@ class GatewayHTTPHandler:
     ) -> tuple[bytes, str, str]:
         scope = self.workspaces.scope_for_session_key(decoded_key)
         return serve_file_bytes(path, scope=scope)
+
+    async def _fetch_lightrag_document_file(
+        self, decoded_key: str, path: str
+    ) -> tuple[bytes, str, str] | None:
+        """Fetch ``path`` from the session's selected LightRAG workspaces.
+
+        Fallback for file-preview / raw-file requests that are not in the
+        nanobot workspace: the assistant's answer often cites retrieved
+        documents by bare filename (e.g. ``[demo.pdf](demo.pdf)``), which the
+        WebUI routes through the session file preview instead of the
+        ``/api/lightrag/file/...`` gateway route.  Only the LightRAG servers
+        the session selected (``lightrag_workspaces``) are tried, so a file
+        is never fetched from a knowledge base the user did not associate
+        with this chat.  Returns ``(content, mime_type, filename)`` or
+        ``None`` when no selected server serves the file.
+        """
+        _, lightrag_workspaces = self.workspaces.scope_and_lightrag_for_session_key(
+            decoded_key
+        )
+        if not lightrag_workspaces:
+            return None
+        tools_cfg = getattr(self.root_config, "tools", None)
+        lightrag_cfg = getattr(tools_cfg, "lightrag", None)
+        if lightrag_cfg is None or not hasattr(lightrag_cfg, "servers"):
+            return None
+        servers_by_name = {s.name: s for s in lightrag_cfg.servers}
+
+        import os
+
+        import httpx
+
+        for name in lightrag_workspaces:
+            server = servers_by_name.get(name)
+            if server is None:
+                continue
+            api_base = getattr(server, "api_base", "").rstrip("/")
+            if not api_base:
+                continue
+            url = f"{api_base}/documents/file/{quote(path, safe='/')}"
+            headers = {}
+            effective_api_key = getattr(server, "api_key", None) or os.environ.get(
+                "LIGHTRAG_API_KEY"
+            )
+            if effective_api_key:
+                headers["X-API-Key"] = effective_api_key
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        url, headers=headers, follow_redirects=True, timeout=30.0
+                    )
+            except Exception:
+                continue
+            if resp.status_code != 200:
+                continue
+            content_type = resp.headers.get(
+                "Content-Type", "application/octet-stream"
+            )
+            filename = Path(path).name or path
+            return resp.content, content_type, filename
+        return None
 
     def _handle_session_automations(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
@@ -813,7 +908,7 @@ class GatewayHTTPHandler:
         self, connection: Any, request: WsRequest, got: str
     ) -> Response | None:
         if got.startswith("/api/lightrag/file/"):
-            return await self._handle_lightrag_file(request, got)
+            return await self._handle_lightrag_file(connection, request, got)
         if got == "/api/sessions":
             return await self._handle_sessions_list(request)
         if got == "/api/commands":
@@ -831,20 +926,36 @@ class GatewayHTTPHandler:
             return self._handle_webui_sidebar_state_update(request)
         return None
 
-    async def _handle_lightrag_file(self, request: WsRequest, got: str) -> Response:
+    async def _handle_lightrag_file(
+        self, connection: Any, request: WsRequest, got: str
+    ) -> Response:
+        if not self.check_api_token(request) and not _is_local_browser_request(
+            connection, request.headers
+        ):
+            return _http_error(401, "Unauthorized")
+
         prefix = "/api/lightrag/file/"
         rest = got[len(prefix):]
         parts = rest.split("/", 1)
         if len(parts) != 2:
             return _http_error(400, "Invalid lightrag file path")
 
-        from urllib.parse import unquote
+        # The gateway owns the encoding contract for both URL components:
+        # percent-decode them to their logical values (server name for config
+        # matching, file path as the real relative path), then re-encode the
+        # file path when building the upstream URL.  This keeps the bytes on
+        # the wire canonical no matter how the caller encoded them, instead of
+        # forwarding the raw path component unchanged.
         server_name = unquote(parts[0])
-        file_path = parts[1]
+        file_path = unquote(parts[1])
 
         server = None
-        if hasattr(self.root_config, "lightrag") and hasattr(self.root_config.lightrag, "servers"):
-            for s in self.root_config.lightrag.servers:
+        # The lightrag tool config lives under ``tools.lightrag`` in the
+        # full config.
+        tools_cfg = getattr(self.root_config, "tools", None)
+        lightrag_cfg = getattr(tools_cfg, "lightrag", None)
+        if lightrag_cfg is not None and hasattr(lightrag_cfg, "servers"):
+            for s in lightrag_cfg.servers:
                 if s.name == server_name:
                     server = s
                     break
@@ -858,7 +969,7 @@ class GatewayHTTPHandler:
         from websockets.http11 import Response
 
         api_base = server.api_base.rstrip("/")
-        url = f"{api_base}/documents/file/{file_path}"
+        url = f"{api_base}/documents/file/{quote(file_path, safe='/')}"
         headers = {}
         effective_api_key = server.api_key or os.environ.get("LIGHTRAG_API_KEY")
         if effective_api_key:

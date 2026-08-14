@@ -154,6 +154,27 @@ class QueryRequest(BaseModel):
         return param
 
 
+class ReferenceMedia(BaseModel):
+    """A retrieved media item aggregated under a parent document reference.
+
+    ``path`` stays relative to the parsed artifact directory (e.g.
+    ``demo.blocks.assets/image.png``); it is never an absolute filesystem
+    path and must not be replaced with a server URL at ingestion time.
+    The ``description`` is the semantic result generated during knowledge-
+    base construction by the VLM that received the corresponding image
+    bytes.
+    """
+
+    type: Literal["image"] = Field(description="Media type (image only for now)")
+    path: str = Field(description="Sidecar-relative asset path")
+    format: Optional[str] = Field(default=None, description="Media format (e.g. png)")
+    name: Optional[str] = Field(default=None, description="Display name / visual category")
+    description: Optional[str] = Field(
+        default=None,
+        description="Indexed VLM description of the retrieved media",
+    )
+
+
 class ReferenceItem(BaseModel):
     """A single reference item in query responses."""
 
@@ -162,6 +183,10 @@ class ReferenceItem(BaseModel):
     content: Optional[List[str]] = Field(
         default=None,
         description="List of chunk contents from this file (only present when include_chunk_content=True)",
+    )
+    media: Optional[List[ReferenceMedia]] = Field(
+        default=None,
+        description="Retrieved media metadata (e.g. images) aggregated from the chunks of this reference",
     )
 
 
@@ -207,7 +232,7 @@ class StreamChunkResponse(BaseModel):
     emitted after the response completes.
     """
 
-    references: Optional[List[Dict[str, str]]] = Field(
+    references: Optional[List[ReferenceItem]] = Field(
         default=None,
         description="Reference list (only in first chunk when include_references=True)",
     )
@@ -263,6 +288,20 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                                 "type": "array",
                                                 "items": {"type": "string"},
                                                 "description": "List of chunk contents from this file (only included when include_chunk_content=True)",
+                                            },
+                                            "media": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {"const": "image"},
+                                                        "path": {"type": "string"},
+                                                        "format": {"type": "string"},
+                                                        "name": {"type": "string"},
+                                                        "description": {"type": "string"},
+                                                    },
+                                                },
+                                                "description": "Retrieved media metadata aggregated from the chunks of this reference",
                                             },
                                         },
                                     },

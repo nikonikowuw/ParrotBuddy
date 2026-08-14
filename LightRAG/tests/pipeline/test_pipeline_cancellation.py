@@ -459,7 +459,7 @@ async def test_analyze_multimodal_inflight_cancellation_polls_flag(
                     "drawings": {
                         f"im-{letter}": {
                             "caption": letter,
-                            "path": str(tmp_path / "parsed" / f"im-{letter}.png"),
+                            "path": f"im-{letter}.png",
                         }
                         for letter in ("A", "B", "C")
                     }
@@ -542,7 +542,7 @@ async def test_analyze_multimodal_fail_fast_preserves_successes(tmp_path):
                 "drawings": {
                     f"im-{letter}": {
                         "caption": letter,
-                        "path": str(parsed_dir / f"im-{letter}.png"),
+                        "path": f"im-{letter}.png",
                     }
                     for letter in ("A", "B", "C")
                 }
@@ -671,7 +671,7 @@ async def test_analyze_multimodal_pre_schedule_cancellation_skips_task_creation(
     )
     sidecar_path = parsed_dir / "doc.drawings.json"
     sidecar_path.write_text(
-        json.dumps({"drawings": {"im-X": {"caption": "X", "path": str(image_path)}}}),
+        json.dumps({"drawings": {"im-X": {"caption": "X", "path": image_path.name}}}),
         encoding="utf-8",
     )
     parsed_data = {"blocks_path": str(blocks_path)}

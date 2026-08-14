@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from collections.abc import Callable
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 from loguru import logger
@@ -39,6 +41,30 @@ _DISABLED_MESSAGE = "LightRAG knowledge base integration is disabled; recall ski
 def _server_error(name: str, message: str) -> ToolResult:
     """Build a per-server error section for fan-out results."""
     return ToolResult.error(f"## Knowledge Base: {name}\n(error: {message})")
+
+
+_MD_SPECIAL_RE = re.compile(r"[\\`*_{}\[\]()#!|>+]")
+
+
+def _md_safe_text(value: str) -> str:
+    """Escape Markdown-significant characters in untrusted text.
+
+    Applied to values that are interpolated into the Markdown context the
+    agent and WebUI render (reference link labels, image alt text and VLM
+    descriptions) so a malicious server response cannot inject links or
+    images.  Newlines are collapsed to spaces and the classic Markdown
+    specials are backslash-escaped.  Dots and dashes are deliberately left
+    untouched (they dominate filenames such as ``demo.pdf``) and CJK text
+    passes through unchanged.
+    """
+    value = re.sub(r"[\r\n]+", " ", value)
+    return _MD_SPECIAL_RE.sub(lambda m: "\\" + m.group(0), value)
+
+
+def _gateway_file_url(server_name: str, rel_path: str) -> str:
+    """Build a gateway-proxied LightRAG file URL for a server + rel path."""
+    clean_rel_path = quote(rel_path.replace("\\", "/").lstrip("/"))
+    return f"/api/lightrag/file/{quote(server_name, safe='')}/{clean_rel_path}"
 
 
 def _config_loader_factory() -> Callable[[], LightRagToolConfig]:
@@ -183,7 +209,12 @@ class LightRagQueryTool(Tool):
                 lines = [
                     f"LightRAG knowledge base active for this turn (scope: {scope}). "
                     "For questions that could be informed by this indexed knowledge, "
-                    "call the lightrag_query tool first (with the user's question as `query`) before answering."
+                    "call the lightrag_query tool first (with the user's question as `query`) before answering.",
+                    "When lightrag_query returns references:",
+                    "- Numbered document links (e.g. `1. [demo.pdf](...)`) are source/document citations; keep them as document links.",
+                    "- `Image context:` text is the indexed VLM description of a retrieved image; you may use it as visual understanding without calling another image model.",
+                    "- Unnumbered Markdown image lines (e.g. `![name](/api/lightrag/file/proj/image.png)`) are renderable retrieved media; preserve them when the answer should show the image.",
+                    "- Do not turn a parent document link into an image, and do not add image lines to the document-reference list manually.",
                 ]
             else:
                 lines = [
@@ -257,12 +288,14 @@ class LightRagQueryTool(Tool):
                 rid = str(ref.get("reference_id") or ref.get("id") or "")
                 if path:
                     if api_base:
-                        from urllib.parse import quote
-                        clean_rel_path = quote(path.replace("\\", "/").lstrip("/"))
-                        file_url = f"/api/lightrag/file/{quote(server_name)}/{clean_rel_path}"
-                        head = f"{i}. [{path}]({file_url})" + (f" (id:{rid})" if rid else "")
+                        file_url = _gateway_file_url(server_name, path)
+                        head = f"{i}. [{_md_safe_text(path)}]({file_url})" + (
+                            f" (id:{rid})" if rid else ""
+                        )
                     else:
-                        head = f"{i}. {path}" + (f" (id:{rid})" if rid else "")
+                        head = f"{i}. {_md_safe_text(path)}" + (
+                            f" (id:{rid})" if rid else ""
+                        )
                 else:
                     head = f"{i}. {rid or ''}".strip()
                 lines.append(head)
@@ -271,6 +304,42 @@ class LightRagQueryTool(Tool):
                     lines.append("   " + "\n   ".join(str(c) for c in content if c))
                 elif isinstance(content, str) and content:
                     lines.append(f"   {content}")
+                # Retrieved media context: expose the indexed VLM description
+                # and one unnumbered Markdown image line per media item.  The
+                # image lines stay indented and unnumbered so the WebUI's
+                # document-reference extractor only classifies the parent
+                # link (above) as a document reference.
+                media_list = ref.get("media")
+                if isinstance(media_list, list):
+                    for media_item in media_list:
+                        if not isinstance(media_item, dict):
+                            continue
+                        if str(media_item.get("type") or "") != "image":
+                            continue
+                        media_path = str(media_item.get("path") or "").strip()
+                        if not media_path:
+                            continue
+                        media_name = _md_safe_text(
+                            str(media_item.get("name") or "").strip()
+                        )
+                        media_desc = _md_safe_text(
+                            str(media_item.get("description") or "").strip()
+                        )
+                        if media_name or media_desc:
+                            context = (
+                                f"{media_name}。{media_desc}"
+                                if media_name and media_desc
+                                else (media_name or media_desc)
+                            )
+                            lines.append(f"   Image context: {context}")
+                        if api_base:
+                            media_url = _gateway_file_url(server_name, media_path)
+                            label = media_name or _md_safe_text(media_path)
+                            lines.append(f"   ![{label}]({media_url})")
+                        else:
+                            # Without a gateway URL the media path is still
+                            # surfaced as plain metadata for the model.
+                            lines.append(f"   Image media: {_md_safe_text(media_path)}")
         return "\n".join(lines).strip()
 
     async def _query_one(

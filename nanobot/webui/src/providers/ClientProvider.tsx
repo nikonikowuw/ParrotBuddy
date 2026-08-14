@@ -35,3 +35,12 @@ export function useClient(): ClientContextValue {
   }
   return ctx;
 }
+
+/**
+ * Gateway API token for media/resource URLs, or ``""`` when rendered
+ * outside a ``ClientProvider`` (unit tests render components directly, so
+ * this never throws).
+ */
+export function useOptionalClientToken(): string {
+  return useContext(ClientContext)?.token ?? "";
+}

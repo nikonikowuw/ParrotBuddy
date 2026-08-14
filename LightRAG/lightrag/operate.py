@@ -4563,6 +4563,89 @@ async def _get_vector_context(
         return []
 
 
+# Per-workspace ``has_media`` flag gating the media-hydration round-trip.
+# ``True`` / ``False`` are set from ingestion-time knowledge (see below); an
+# absent key means "unknown" and always hydrates, so a workspace whose media
+# was ingested by an earlier process run is never skipped.
+_workspace_has_media: dict[str, bool] = {}
+_workspace_freshness_checked: set[str] = set()
+
+
+def mark_workspace_has_media(workspace: str) -> None:
+    """Record that a workspace contains at least one chunk with ``media``."""
+    if workspace:
+        _workspace_has_media[workspace] = True
+
+
+async def ensure_workspace_has_media_flag(
+    workspace: str, text_chunks_db: BaseKVStorage | None
+) -> None:
+    """One-time per-process freshness probe for a workspace.
+
+    On the first chunk write for a workspace in this process, if the chunks
+    store is empty the workspace is fresh — everything in it was ingested by
+    this process — so it can be marked as having no media (unless media was
+    already observed via :func:`mark_workspace_has_media`).  Pre-existing
+    workspaces stay unknown, keeping the hydration gate conservative.
+    """
+    if not workspace or workspace in _workspace_freshness_checked:
+        return
+    _workspace_freshness_checked.add(workspace)
+    if workspace in _workspace_has_media:
+        return
+    if text_chunks_db is None:
+        return
+    try:
+        if await text_chunks_db.is_empty():
+            _workspace_has_media[workspace] = False
+    except Exception:
+        pass
+
+
+async def _hydrate_chunk_media(
+    chunks: list[dict], text_chunks_db: BaseKVStorage | None
+) -> list[dict]:
+    """Backfill additive ``media`` metadata from the full chunk records.
+
+    The chunks VDB only persists ``meta_fields`` (content/file_path/full_doc_id),
+    so a retrieved multimodal chunk would otherwise drop its ``media`` item here
+    and the parent reference would lose the image before aggregation.
+
+    The ``get_by_ids`` round-trip is gated by a per-workspace ``has_media`` flag
+    (see ``mark_workspace_has_media`` / ``ensure_workspace_has_media_flag``):
+    it is skipped entirely for workspaces that this process has provably built
+    without any media, and always runs for unknown or media-bearing workspaces
+    so no media is ever silently dropped.
+    """
+    if text_chunks_db is None or not chunks:
+        return chunks
+    workspace = getattr(text_chunks_db, "workspace", "")
+    if _workspace_has_media.get(workspace) is False:
+        # Fast path: this process has ingested this (fresh) workspace itself
+        # and no chunk carried media, so hydration would find nothing.
+        return chunks
+    chunk_ids = [c["chunk_id"] for c in chunks if c.get("chunk_id")]
+    if not chunk_ids:
+        return chunks
+    try:
+        chunk_data_list = await text_chunks_db.get_by_ids(chunk_ids)
+    except Exception as exc:
+        logger.warning(f"Failed to hydrate chunk media from text_chunks: {exc}")
+        return chunks
+    media_by_id = dict(zip(chunk_ids, chunk_data_list))
+    found_media = False
+    for chunk in chunks:
+        data = media_by_id.get(chunk.get("chunk_id"))
+        if isinstance(data, dict):
+            media = data.get("media")
+            if isinstance(media, list) and media:
+                chunk["media"] = media
+                found_media = True
+    if found_media and workspace:
+        _workspace_has_media[workspace] = True
+    return chunks
+
+
 async def _perform_kg_search(
     query: str,
     ll_keywords: str,
@@ -4703,6 +4786,7 @@ async def _perform_kg_search(
                 query_param,
                 query_embedding,
             )
+            vector_chunks = await _hydrate_chunk_media(vector_chunks, text_chunks_db)
             # Track vector chunks with source metadata
             for i, chunk in enumerate(vector_chunks):
                 chunk_id = chunk.get("chunk_id") or chunk.get("id")
@@ -4990,6 +5074,25 @@ async def _attach_content_headings(
             chunk["content_headings"] = headings
 
 
+def _merge_chunk_record(chunk: dict, chunk_id: str) -> dict:
+    """Build the merged record for a retrieved chunk, preserving additive media.
+
+    ``content`` / ``file_path`` / ``chunk_id`` are always present (matching the
+    contract the vector branch produced before); ``media`` is copied through
+    when the source chunk carries a non-empty list so multimodal chunks keep
+    their retrieved images through to reference aggregation.
+    """
+    record = {
+        "content": chunk["content"],
+        "file_path": chunk.get("file_path", "unknown_source"),
+        "chunk_id": chunk_id,
+    }
+    media = chunk.get("media")
+    if isinstance(media, list) and media:
+        record["media"] = media
+    return record
+
+
 async def _merge_all_chunks(
     filtered_entities: list[dict],
     filtered_relations: list[dict],
@@ -5049,13 +5152,7 @@ async def _merge_all_chunks(
             chunk_id = chunk.get("chunk_id") or chunk.get("id")
             if chunk_id and chunk_id not in seen_chunk_ids:
                 seen_chunk_ids.add(chunk_id)
-                merged_chunks.append(
-                    {
-                        "content": chunk["content"],
-                        "file_path": chunk.get("file_path", "unknown_source"),
-                        "chunk_id": chunk_id,
-                    }
-                )
+                merged_chunks.append(_merge_chunk_record(chunk, chunk_id))
 
         # Add from entity chunks (Local mode)
         if i < len(entity_chunks):
@@ -5063,13 +5160,7 @@ async def _merge_all_chunks(
             chunk_id = chunk.get("chunk_id") or chunk.get("id")
             if chunk_id and chunk_id not in seen_chunk_ids:
                 seen_chunk_ids.add(chunk_id)
-                merged_chunks.append(
-                    {
-                        "content": chunk["content"],
-                        "file_path": chunk.get("file_path", "unknown_source"),
-                        "chunk_id": chunk_id,
-                    }
-                )
+                merged_chunks.append(_merge_chunk_record(chunk, chunk_id))
 
         # Add from relation chunks (Global mode)
         if i < len(relation_chunks):
@@ -5077,13 +5168,7 @@ async def _merge_all_chunks(
             chunk_id = chunk.get("chunk_id") or chunk.get("id")
             if chunk_id and chunk_id not in seen_chunk_ids:
                 seen_chunk_ids.add(chunk_id)
-                merged_chunks.append(
-                    {
-                        "content": chunk["content"],
-                        "file_path": chunk.get("file_path", "unknown_source"),
-                        "chunk_id": chunk_id,
-                    }
-                )
+                merged_chunks.append(_merge_chunk_record(chunk, chunk_id))
 
     logger.info(
         f"Round-robin merged chunks: {origin_len} -> {len(merged_chunks)} (deduplicated {origin_len - len(merged_chunks)})"
@@ -6052,6 +6137,7 @@ async def naive_query(
     if progress_callback:
         await progress_callback(QueryProgress.RETRIEVING_CHUNKS)
     chunks = await _get_vector_context(query, chunks_vdb, query_param, None)
+    chunks = await _hydrate_chunk_media(chunks, text_chunks_db)
 
     if chunks is None or len(chunks) == 0:
         logger.info(

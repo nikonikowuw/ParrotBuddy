@@ -1815,7 +1815,7 @@ def test_analyze_multimodal_overwrites_already_analyzed_items(tmp_path):
                         "id1": {
                             "id": "id1",
                             "caption": "fig1",
-                            "path": str(img_path),
+                            "path": img_path.name,
                             "llm_analyze_result": {
                                 "name": "Existing",
                                 "type": "Photo",
@@ -2618,7 +2618,7 @@ def test_analyze_multimodal_invalid_json_hard_fails(tmp_path):
                             "id": "id1",
                             "caption": "图1 测试图",
                             "footnotes": [],
-                            "path": str(img_path),
+                            "path": img_path.name,
                         }
                     },
                 },
@@ -2769,7 +2769,7 @@ def test_analyze_multimodal_unknown_image_type_folds_to_other(tmp_path):
                             "id": "id1",
                             "caption": "图1 测试图",
                             "footnotes": [],
-                            "path": str(img_path),
+                            "path": img_path.name,
                         }
                     },
                 },
@@ -2839,7 +2839,7 @@ def test_analyze_multimodal_skips_tiny_image_without_vlm_call(tmp_path):
                         "id1": {
                             "id": "id1",
                             "caption": "tiny",
-                            "path": str(img_path),
+                            "path": img_path.name,
                         }
                     },
                 }

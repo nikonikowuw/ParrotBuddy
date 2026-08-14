@@ -24,6 +24,8 @@ import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { FileReferenceChip } from "@/components/FileReferenceChip";
 import { extractDocumentReferencesFromMessages } from "@/lib/document-references";
+import { withGatewayToken } from "@/lib/api";
+import { useOptionalClientToken } from "@/providers/ClientProvider";
 import {
   Tooltip,
   TooltipContent,
@@ -105,6 +107,11 @@ export function MessageBubble({
     () => mergeMcpMentionPresets(mcpPresets, message.mcpPresets),
     [mcpPresets, message.mcpPresets],
   );
+
+  const referenceDocs = useMemo(() => {
+    if (message.role !== "assistant") return [];
+    return extractDocumentReferencesFromMessages(activityMessages, message.content);
+  }, [message.role, activityMessages, message.content]);
 
   useEffect(() => {
     return () => {
@@ -221,37 +228,24 @@ export function MessageBubble({
           >
             {message.content}
           </MarkdownText>
-          {(() => {
-            const referenceDocs = useMemo(() => {
-              if (message.role !== "assistant") return [];
-              return extractDocumentReferencesFromMessages(activityMessages, message.content);
-            }, [message.role, activityMessages, message.content]);
-
-            if (referenceDocs.length === 0) return null;
-            return (
-              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
-                <div className="flex items-center gap-1.5 font-medium text-muted-foreground mr-1">
-                  <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  <span>{t("message.references", { defaultValue: "Reference documents" })}</span>
-                </div>
-                {referenceDocs.map((doc) => (
-                  <a
-                    key={doc.href}
-                    href={doc.href}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="not-prose inline-flex max-w-full align-baseline no-underline"
-                  >
-                    <FileReferenceChip
-                      path={doc.name}
-                      tooltipPath={doc.fullPath}
-                      display="name"
-                    />
-                  </a>
-                ))}
+          {referenceDocs.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
+              <div className="flex items-center gap-1.5 font-medium text-muted-foreground mr-1">
+                <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
+                <span>{t("message.references", { defaultValue: "Reference documents" })}</span>
               </div>
-            );
-          })()}
+              {referenceDocs.map((doc) => (
+                <FileReferenceChip
+                  key={doc.href}
+                  path={doc.name}
+                  tooltipPath={doc.fullPath}
+                  previewPath={doc.fullPath}
+                  display="name"
+                  onOpen={onOpenFilePreview}
+                />
+              ))}
+            </div>
+          )}
           {media.length > 0 ? <MessageMedia media={media} align="left" onOpenFilePreview={onOpenFilePreview} /> : null}
           {showAssistantFooterRow ? (
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>
@@ -406,6 +400,7 @@ function MessageMedia({
   align: "left" | "right";
   onOpenFilePreview?: (path: string) => void;
 }) {
+  const gatewayToken = useOptionalClientToken();
   if (media.length === 0) return null;
   const images: UIImage[] = [];
   const nonImages: UIMediaAttachment[] = [];
@@ -431,7 +426,7 @@ function MessageMedia({
       {nonImages.map((item, i) => (
         <AttachmentTile
           key={`${item.url ?? item.name ?? item.kind}-${i}`}
-          attachment={item}
+          attachment={{ ...item, url: withGatewayToken(item.url ?? "", gatewayToken) }}
           onOpen={onOpenFilePreview}
         />
       ))}

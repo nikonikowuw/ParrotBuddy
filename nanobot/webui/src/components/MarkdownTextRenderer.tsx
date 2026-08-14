@@ -24,6 +24,8 @@ import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { inferMediaKind } from "@/lib/media";
 import { faviconUrls } from "@/lib/provider-brand";
 import { remarkTexMath } from "@/lib/remark-tex-math";
+import { withGatewayToken } from "@/lib/api";
+import { useOptionalClientToken } from "@/providers/ClientProvider";
 import { cn } from "@/lib/utils";
 
 import "katex/dist/katex.min.css";
@@ -387,6 +389,7 @@ export default function MarkdownTextRenderer({
   highlightCode = true,
   onOpenFilePreview,
 }: MarkdownTextRendererProps) {
+  const gatewayToken = useOptionalClientToken();
   const components = useMemo<Components>(
     () => ({
       code({ className: cls, children: kids, ...props }) {
@@ -471,7 +474,7 @@ export default function MarkdownTextRenderer({
           const cleanLabel = label.replace(/^(?:📄|📝|📊|🖼️|📦|🎵|🎥|💻|📎)\s*/u, "").trim();
           return (
             <a
-              href={urlRef.rewrittenHref || href}
+              href={withGatewayToken(urlRef.rewrittenHref || href || "", gatewayToken)}
               target="_blank"
               rel="noreferrer noopener"
               className="not-prose inline-flex max-w-full align-baseline no-underline"
@@ -596,7 +599,7 @@ export default function MarkdownTextRenderer({
           <AttachmentTile
             attachment={{
               kind,
-              url: source,
+              url: withGatewayToken(source, gatewayToken),
               name: label,
             }}
             inline
@@ -604,7 +607,7 @@ export default function MarkdownTextRenderer({
         );
       },
     }),
-    [highlightCode, onOpenFilePreview],
+    [highlightCode, onOpenFilePreview, gatewayToken],
   );
 
   return (

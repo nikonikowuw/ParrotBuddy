@@ -36,11 +36,13 @@ from lightrag.constants import (
     FULL_DOCS_FORMAT_PENDING_PARSE,
     PARSED_ARTIFACT_DIR_SUFFIXES,
     PARSED_DIR_NAME,
+    PARSED_DIR_SUFFIX,
     PROCESS_OPTION_CHUNK_FIXED,
     PROCESS_OPTION_CHUNK_PARAGRAH,
     PROCESS_OPTION_CHUNK_RECURSIVE,
     PROCESS_OPTION_CHUNK_VECTOR,
 )
+from lightrag.pipeline import normalize_sidecar_media_path
 from lightrag.parser.routing import (
     FilenameParserHintError,
     canonicalize_parser_hinted_basename,
@@ -96,6 +98,63 @@ temp_prefix = "__tmp__"
 UNKNOWN_FILE_SOURCE = "unknown_source"
 LEGACY_EMPTY_FILE_PATH_SENTINELS = {"", "no-file-path"}
 ARCHIVED_FILE_SUFFIX_RE = re.compile(r"_(?:\d{3}|\d{10,})$")
+
+
+def _strip_archive_suffix(name: str) -> str:
+    """Strip a ``_NNN`` numbered-archive suffix from a file/dir name."""
+    return ARCHIVED_FILE_SUFFIX_RE.sub("", name)
+
+
+def _is_parsed_artifact_dir_name(name: str) -> bool:
+    """True for ``<base>.parsed`` and its numbered archive variants.
+
+    The sidecar writer appends ``_NNN`` when the base artifact dir is taken
+    (see ``parsed_artifact_dir_for``), so a media asset can live under
+    ``demo.pdf.parsed_001/`` as well as ``demo.pdf.parsed/``.
+    """
+    return _strip_archive_suffix(name).endswith(PARSED_DIR_SUFFIX)
+
+
+# TTL cache for parsed-artifact lookups.  Serving a sidecar media asset must
+# not re-scan the whole ``__parsed__`` directory on every request; the listing
+# is cached briefly and positive resolutions are cached longer.  Both caches
+# only avoid filesystem scans — existence is still re-validated with a cheap
+# ``is_file()`` against the live filesystem on every hit, so a deleted or
+# re-ingested asset cannot be served from a stale entry for long.
+_PARSED_ARTIFACT_DIRS_TTL = 5.0
+_PARSED_MEDIA_RESOLUTION_TTL = 30.0
+_parsed_artifact_dirs_cache: dict[str, tuple[float, list[str]]] = {}
+_parsed_media_resolution_cache: dict[tuple[tuple[str, ...], str], tuple[float, str]] = {}
+
+
+def _cached_parsed_artifact_dirs(
+    root_resolved: Path, *, force: bool = False
+) -> list[Path]:
+    """Return the sorted ``*.parsed`` artifact dirs under a parsed root.
+
+    The directory listing is cached per resolved root for a short TTL so
+    repeated media requests skip the ``iterdir()`` scan; the per-request
+    ``is_file()`` validation still runs against the live filesystem.  With
+    ``force=True`` the cache is bypassed and refreshed, so a stale listing
+    (e.g. right after a document was re-parsed) can never hide a newly
+    created ``*.parsed`` dir.
+    """
+    key = str(root_resolved)
+    now = time.monotonic()
+    if not force:
+        cached = _parsed_artifact_dirs_cache.get(key)
+        if cached is not None and now - cached[0] < _PARSED_ARTIFACT_DIRS_TTL:
+            return [root_resolved / name for name in cached[1]]
+    try:
+        dirs = sorted(
+            p.name
+            for p in root_resolved.iterdir()
+            if p.is_dir() and _is_parsed_artifact_dir_name(p.name)
+        )
+    except Exception:
+        dirs = []
+    _parsed_artifact_dirs_cache[key] = (now, dirs)
+    return [root_resolved / name for name in dirs]
 
 
 def normalize_file_path(file_path: str | None) -> str:
@@ -1633,7 +1692,7 @@ def _file_path_for_parsed_artifact_dir(dir_name: str) -> str | None:
     with ``delete_file=True`` so the raw artifacts and source file go away
     together.
     """
-    stripped = ARCHIVED_FILE_SUFFIX_RE.sub("", dir_name)
+    stripped = _strip_archive_suffix(dir_name)
     for suffix in PARSED_ARTIFACT_DIR_SUFFIXES:
         if stripped.endswith(suffix):
             basename = stripped[: -len(suffix)]
@@ -4650,13 +4709,117 @@ def create_document_routes(
                     continue
             return None
 
+        def _search_parsed_assets(roots_to_search: list[Path]) -> FileResponse | None:
+            """Resolve a sidecar media path inside a matching ``*.parsed`` dir.
+
+            A media path such as ``demo.blocks.assets/image.png`` is relative
+            to its owning parsed artifact directory
+            (``inputs/__parsed__/demo.pdf.parsed/``).  Only the immediate
+            ``*.parsed`` artifact directories directly under a configured
+            parsed root are inspected — no unrestricted recursive search.
+            The resolved candidate must remain inside both the artifact
+            directory and the parsed root; absolute paths and traversal
+            attempts are rejected.
+            """
+            media_rel_value = normalize_sidecar_media_path(clean_path)
+            if not media_rel_value:
+                return None
+            media_rel = Path(media_rel_value)
+
+            valid_roots = []
+            seen = set()
+            for root in roots_to_search:
+                if root.name != PARSED_DIR_NAME:
+                    continue
+                try:
+                    resolved = root.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        valid_roots.append(resolved)
+                except Exception:
+                    continue
+            if not valid_roots:
+                return None
+
+            # Positive-resolution cache: repeated requests for the same asset
+            # in the same set of parsed roots skip the O(N) scan entirely.
+            # The key includes the resolved roots so the same media path in
+            # different workspaces cannot collide.  The cached file is still
+            # re-validated with a cheap ``is_file()`` so a stale entry (asset
+            # deleted or re-ingested elsewhere) falls through to a fresh scan.
+            resolution_key = (tuple(str(r) for r in valid_roots), str(media_rel))
+            now = time.monotonic()
+            cached_hit = _parsed_media_resolution_cache.get(resolution_key)
+            if (
+                cached_hit is not None
+                and now - cached_hit[0] < _PARSED_MEDIA_RESOLUTION_TTL
+            ):
+                cached_path = Path(cached_hit[1])
+                try:
+                    if cached_path.is_file():
+                        return _create_file_response(cached_path)
+                except Exception:
+                    pass
+                _parsed_media_resolution_cache.pop(resolution_key, None)
+
+            def _try_roots(roots: list[Path], *, force_listing: bool) -> Path | None:
+                """Try every artifact dir in ``roots`` for this media path.
+
+                Returns the resolved file when found (the caller builds the
+                FileResponse); the resolution cache is refreshed on a hit.
+                ``force_listing`` bypasses the listing cache so a stale
+                listing can never hide a freshly re-parsed artifact dir.
+                """
+                for root_resolved in roots:
+                    for artifact_dir in _cached_parsed_artifact_dirs(
+                        root_resolved, force=force_listing
+                    ):
+                        try:
+                            artifact_resolved = artifact_dir.resolve()
+                            candidate = (artifact_resolved / media_rel).resolve()
+                        except Exception:
+                            continue
+                        if not candidate.is_relative_to(artifact_resolved):
+                            continue
+                        if not candidate.is_relative_to(root_resolved):
+                            continue
+                        if candidate.is_file():
+                            _parsed_media_resolution_cache[resolution_key] = (
+                                time.monotonic(),
+                                str(candidate),
+                            )
+                            return candidate
+                return None
+
+            hit = _try_roots(valid_roots, force_listing=False)
+            if hit is None:
+                # Cache-miss fallback: force a fresh listing before declaring
+                # the asset missing.  A stale cached listing (e.g. right after
+                # a document was re-parsed and a new ``*.parsed`` dir appeared)
+                # must never turn an on-disk asset into a false 404.
+                hit = _try_roots(valid_roots, force_listing=True)
+            if hit is not None:
+                return _create_file_response(hit)
+            return None
+
         # Search primary roots first (both exact and canonical)
         match = _search_in_roots(primary_roots)
         if match is not None:
             return match
 
+        # Parsed-artifact lookup: resolve media paths (e.g.
+        # demo.blocks.assets/image.png) inside matching *.parsed dirs.
+        match = _search_parsed_assets(primary_roots)
+        if match is not None:
+            return match
+
         # Search fallback roots
         match = _search_in_roots(fallback_roots)
+        if match is not None:
+            return match
+
+        # Parsed-artifact lookup in fallback parsed roots
+        match = _search_parsed_assets(fallback_roots)
         if match is not None:
             return match
 

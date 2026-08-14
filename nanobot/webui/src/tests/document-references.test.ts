@@ -116,3 +116,30 @@ describe("document-references", () => {
     expect(refs[0].fullPath).toBe("发票文件.pdf");
   });
 });
+
+  it("does not treat retrieved media image lines as document references", () => {
+    // The formatter emits the parent as a numbered link and each retrieved
+    // image as an indented, unnumbered Markdown image line. Only the parent
+    // may become a document-reference chip.
+    const text =
+      "## Knowledge Base: proj\n" +
+      "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)\n" +
+      "   Image context: 系统架构图。图中展示了系统模块之间的调用关系。\n" +
+      "   ![系统架构图](/api/lightrag/file/proj/demo.blocks.assets/image.png)";
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toBe("demo.pdf");
+    expect(refs[0].fullPath).toBe("demo.pdf");
+  });
+
+  it("extracts the parent reference when multiple media lines follow it", () => {
+    const text =
+      "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)\n" +
+      "   Image context: 图A。模块关系\n" +
+      "   ![图A](/api/lightrag/file/proj/demo.blocks.assets/image.png)\n" +
+      "   Image context: 图B。流程说明\n" +
+      "   ![图B](/api/lightrag/file/proj/demo.blocks.assets/flow.png)";
+    const refs = extractDocumentReferencesFromText(text);
+    expect(refs).toHaveLength(1);
+    expect(refs[0].name).toBe("demo.pdf");
+  });

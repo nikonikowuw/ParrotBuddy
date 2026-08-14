@@ -77,11 +77,13 @@ def _make_handler(
     cron_pending_job_ids: Any | None = None,
     local_trigger_pending_ids: Any | None = None,
     channel_feature_action: Any | None = None,
+    root_config: Any = None,
 ) -> GatewayServices:
     config = WebSocketConfig.model_validate(cfg) if isinstance(cfg, dict) else cfg
     workspace = workspace_path or Path.cwd()
     return build_gateway_services(
         config=config,
+        root_config=root_config,
         bus=bus,
         session_manager=session_manager,
         static_dist_path=static_dist_path,
@@ -2862,3 +2864,410 @@ def test_bootstrap_secret_also_enforced_on_localhost(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
     resp = channel.gateway.http._handle_bootstrap(_LOCAL, _NO_HEADERS)
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_lightrag_file_proxy_resolves_server_from_tools_config(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gateway must resolve the LightRAG server from
+    ``tools.lightrag.servers`` (the real config location) when proxying
+    ``/api/lightrag/file/...`` — a top-level ``lightrag`` key never exists on
+    the full config, so the old lookup always 404'd with
+    "LightRAG server not found"."""
+    class _LightragServer:
+        name = "LightRAG"
+        api_base = "http://127.0.0.1:9621"
+        api_key = None
+
+    class _ToolsCfg:
+        lightrag = MagicMock()
+        lightrag.servers = [_LightragServer()]
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29909,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        root_config=_RootCfg(),
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "image/png"}
+        content = b"PNGDATA"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            captured["url"] = url
+            return _FakeResp()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+
+    media = "/api/lightrag/file/LightRAG/1706.03762v7.blocks.assets/image.png"
+    req = _FakeReq(headers={"Host": "127.0.0.1:8765"}, path=media)
+    conn = _FakeConn(("127.0.0.1", 1234))
+    resp = await gateway.http._handle_lightrag_file(conn, req, media)
+    assert resp.status_code == 200
+    assert (
+        captured["url"]
+        == "http://127.0.0.1:9621/documents/file/1706.03762v7.blocks.assets/image.png"
+    )
+
+
+async def test_lightrag_file_proxy_encodes_file_path_canonically(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gateway owns the encoding contract: it percent-decodes both URL
+    components and re-encodes the file path when forwarding, so non-ASCII /
+    special-character paths arrive at LightRAG as canonical percent-encoding
+    regardless of how the caller encoded them (the old code forwarded the raw
+    path component unchanged)."""
+    class _LightragServer:
+        name = "LightRAG"
+        api_base = "http://127.0.0.1:9622"
+        api_key = None
+
+    class _ToolsCfg:
+        lightrag = MagicMock()
+        lightrag.servers = [_LightragServer()]
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29910,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        root_config=_RootCfg(),
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "image/png"}
+        content = b"PNGDATA"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            captured["url"] = url
+            return _FakeResp()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+
+    from urllib.parse import quote, unquote
+
+    conn = _FakeConn(("127.0.0.1", 1234))
+
+    # Producer-encoded path with non-ASCII / space / percent / plus: the
+    # forwarded URL must carry canonical encoding and round-trip back to the
+    # original logical path under the upstream's own unquote.
+    logical = "报告 100%+.pdf"
+    encoded = quote(logical, safe="/")
+    media = f"/api/lightrag/file/LightRAG/{encoded}"
+    req = _FakeReq(headers={"Host": "127.0.0.1:8765"}, path=media)
+    resp = await gateway.http._handle_lightrag_file(conn, req, media)
+    assert resp.status_code == 200
+    forwarded_path = captured["url"].split("/documents/file/", 1)[1]
+    assert unquote(forwarded_path) == logical
+    assert forwarded_path == quote(logical, safe="/")
+
+    # A raw (unencoded) non-ASCII path must also be normalized to canonical
+    # percent-encoding instead of being forwarded as raw bytes.
+    captured.clear()
+    raw_media = "/api/lightrag/file/LightRAG/报告.pdf"
+    req = _FakeReq(headers={"Host": "127.0.0.1:8765"}, path=raw_media)
+    resp = await gateway.http._handle_lightrag_file(conn, req, raw_media)
+    assert resp.status_code == 200
+    forwarded_path = captured["url"].split("/documents/file/", 1)[1]
+    assert unquote(forwarded_path) == "报告.pdf"
+
+
+async def test_file_preview_falls_back_to_lightrag_document_when_not_in_workspace(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bare-filename reference to a retrieved LightRAG document (the LLM
+    answer cites ``[demo.pdf](demo.pdf)``, which the WebUI routes through the
+    session file preview instead of the ``/api/lightrag/file/...`` gateway
+    route) must fall back to the session's selected LightRAG workspaces when
+    the file is not in the nanobot workspace — otherwise the preview 404s with
+    "file not found" while the same document opens fine in the Reference
+    documents section."""
+
+    class _LightragServer:
+        name = "LightRAG"
+        api_base = "http://127.0.0.1:9623"
+        api_key = None
+
+    class _ToolsCfg:
+        lightrag = MagicMock()
+        lightrag.servers = [_LightragServer()]
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sessions = SessionManager(tmp_path / "sessions")
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29911,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        session_manager=sessions,
+        workspace_path=workspace,
+        root_config=_RootCfg(),
+    )
+    gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
+    gateway.http.workspaces.persist_lightrag_workspaces("chat-kb", ["LightRAG"])
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        content = b"%PDF-1.4 fake"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            captured["url"] = url
+            return _FakeResp()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+
+    key = "websocket:chat-kb"
+    enc = quote(key, safe="")
+    req = _FakeReq(
+        {"Authorization": "Bearer tok"},
+        path=f"/api/sessions/{enc}/file-preview?path={quote('1810.04805v2.pdf', safe='')}",
+    )
+    resp = await gateway.http._handle_file_preview(req, enc)
+
+    assert resp.status_code == 200
+    body = json.loads(resp.body.decode())
+    assert body["kind"] == "binary"
+    assert body["filename"] == "1810.04805v2.pdf"
+    assert body["mime_type"] == "application/pdf"
+    assert body["size"] == len(b"%PDF-1.4 fake")
+    assert (
+        captured["url"]
+        == "http://127.0.0.1:9623/documents/file/1810.04805v2.pdf"
+    )
+
+
+async def test_file_raw_falls_back_to_lightrag_document_when_not_in_workspace(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The raw-file route that backs the preview panel's binary documents
+    must apply the same LightRAG fallback, so a document that lives only in
+    the knowledge base can actually be rendered after the preview payload is
+    fetched (the WebUI loads bytes via ``/api/sessions/<key>/file``)."""
+
+    class _LightragServer:
+        name = "LightRAG"
+        api_base = "http://127.0.0.1:9624"
+        api_key = None
+
+    class _ToolsCfg:
+        lightrag = MagicMock()
+        lightrag.servers = [_LightragServer()]
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sessions = SessionManager(tmp_path / "sessions")
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29912,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        session_manager=sessions,
+        workspace_path=workspace,
+        root_config=_RootCfg(),
+    )
+    gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
+    gateway.http.workspaces.persist_lightrag_workspaces("chat-kb", ["LightRAG"])
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        content = b"%PDF-1.4 fake"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            captured["url"] = url
+            return _FakeResp()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+
+    key = "websocket:chat-kb"
+    enc = quote(key, safe="")
+    req = _FakeReq(
+        {"Authorization": "Bearer tok"},
+        path=f"/api/sessions/{enc}/file?path={quote('1810.04805v2.pdf', safe='')}",
+    )
+    resp = await gateway.http._handle_file(req, enc)
+
+    assert resp.status_code == 200
+    assert resp.body == b"%PDF-1.4 fake"
+    assert (
+        captured["url"]
+        == "http://127.0.0.1:9624/documents/file/1810.04805v2.pdf"
+    )
+
+
+async def test_file_preview_lightrag_fallback_only_uses_selected_workspaces(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The LightRAG fallback must only query the servers the session selected
+    (``lightrag_workspaces``): a file is never fetched from a knowledge base
+    the user did not associate with this chat."""
+
+    class _LightragServer:
+        name = "LightRAG"
+        api_base = "http://127.0.0.1:9625"
+        api_key = None
+
+    class _OtherServer:
+        name = "OtherKB"
+        api_base = "http://127.0.0.1:9626"
+        api_key = None
+
+    class _ToolsCfg:
+        lightrag = MagicMock()
+        lightrag.servers = [_LightragServer(), _OtherServer()]
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sessions = SessionManager(tmp_path / "sessions")
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29913,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        session_manager=sessions,
+        workspace_path=workspace,
+        root_config=_RootCfg(),
+    )
+    gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
+    # Session selects only "LightRAG"; "OtherKB" must never be queried.
+    gateway.http.workspaces.persist_lightrag_workspaces("chat-kb", ["LightRAG"])
+
+    hits: list[str] = []
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        content = b"%PDF-1.4 fake"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            hits.append(url)
+            return _FakeResp()
+
+    import httpx as _httpx
+
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: _FakeClient())
+
+    key = "websocket:chat-kb"
+    enc = quote(key, safe="")
+    req = _FakeReq(
+        {"Authorization": "Bearer tok"},
+        path=f"/api/sessions/{enc}/file-preview?path={quote('1810.04805v2.pdf', safe='')}",
+    )
+    resp = await gateway.http._handle_file_preview(req, enc)
+
+    assert resp.status_code == 200
+    assert hits == ["http://127.0.0.1:9625/documents/file/1810.04805v2.pdf"]
