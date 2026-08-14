@@ -1333,7 +1333,8 @@ async def _get_cached_extraction_results(
     all_cache_ids = set()
 
     # Read from storage
-    requested_chunk_ids = list(chunk_ids)
+    # Deduplicate while preserving order
+    requested_chunk_ids = list(dict.fromkeys(chunk_ids))
     chunk_data_list = await text_chunks_storage.get_by_ids(requested_chunk_ids)
     for chunk_id, chunk_data in zip(requested_chunk_ids, chunk_data_list):
         if chunk_data and isinstance(chunk_data, dict):
@@ -4625,8 +4626,9 @@ async def _hydrate_chunk_media(
         # and no chunk carried media, so hydration would find nothing.
         return chunks
     # Filter chunk_ids to only those we need (skip None/empty)
-    # Convert to set first to deduplicate
-    unique_chunk_ids = list(set(c["chunk_id"] for c in chunks if c.get("chunk_id")))
+    # Deduplicate while preserving order, because some mock tests expect the mock `get_by_ids`
+    # to receive IDs in exactly the order they appear and return a list matching that list.
+    unique_chunk_ids = list(dict.fromkeys(c["chunk_id"] for c in chunks if c.get("chunk_id")))
     if not unique_chunk_ids:
         return chunks
     try:
@@ -5062,7 +5064,7 @@ async def _attach_content_headings(
     if not text_chunks_db or not chunks:
         return
     tokenizer = text_chunks_db.global_config.get("tokenizer")
-    unique_chunk_ids = list(set(c.get("chunk_id") for c in chunks if c.get("chunk_id")))
+    unique_chunk_ids = list(dict.fromkeys(c.get("chunk_id") for c in chunks if c.get("chunk_id")))
     if not unique_chunk_ids:
         return
     chunk_data_list = await text_chunks_db.get_by_ids(unique_chunk_ids)
