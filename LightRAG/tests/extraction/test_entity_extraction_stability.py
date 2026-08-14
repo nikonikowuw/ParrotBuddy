@@ -199,7 +199,11 @@ _JSON_MODE_RESPONSE = json.dumps(
 )
 
 
-class _DummyTextChunksStorage:
+from tests.tools.test_rebuild_vdb import MockVDB
+
+class _DummyTextChunksStorage(MockVDB):
+    def __init__(self):
+        super().__init__()
     async def get_by_id(self, chunk_id: str):
         return {"file_path": "test.md"}
 
@@ -1588,12 +1592,18 @@ def test_format_parent_headings_basic_behavior_preserved():
     assert format_parent_headings(chunk) == "h1 → h2"  # leaf NOT appended
 
 
-class _FakeChunksDB:
+class _FakeChunksDB(MockVDB):
     """Minimal text_chunks_db for _attach_content_headings: get_by_ids + config."""
 
     def __init__(self, data_by_id: dict, tokenizer):
+        super().__init__()
         self._data = data_by_id
         self.global_config = {"tokenizer": tokenizer}
+
+        async def _get_by_ids(ids):
+            return [self._data.get(i) for i in ids]
+
+        self.get_by_ids = AsyncMock(side_effect=_get_by_ids)
 
     async def get_by_ids(self, ids):
         return [self._data.get(i) for i in ids]

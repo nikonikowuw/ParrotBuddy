@@ -114,8 +114,9 @@ def test_get_vector_context_hydrates_media_from_text_chunks():
     aggregation."""
     from lightrag.base import QueryParam
     from lightrag.operate import _get_vector_context, _hydrate_chunk_media
+    from tests.tools.test_rebuild_vdb import MockVDB
 
-    class _ChunksVDB:
+    class _ChunksVDB(MockVDB):
         cosine_better_than_threshold = 0.2
 
         async def query(self, query, top_k, query_embedding=None):
