@@ -331,20 +331,16 @@ def test_discover_enabled_warns_for_enabled_builtin_import_errors():
 
 
 def test_discover_all_builtin_shadows_plugin():
-    from nanobot.channels.base import BaseChannel
     from nanobot.channels.registry import discover_all
-
-    class FakeDiscord(BaseChannel):
-        pass
 
     ep = _make_entry_point("discord", _FakeTelegram)
     with patch(_EP_TARGET, return_value=[ep]), \
          patch("nanobot.channels.registry.discover_channel_names", return_value=["discord"]), \
-         patch("nanobot.channels.registry.load_channel_class", return_value=FakeDiscord):
+         patch("nanobot.channels.registry.load_channel_class", return_value=_FakePlugin):
         result = discover_all()
 
     assert "discord" in result
-    assert result["discord"] is FakeDiscord
+    assert result["discord"] is _FakePlugin
 
 
 def test_discover_all_builtin_name_shadows_plugin_when_dependency_missing():
