@@ -331,9 +331,9 @@ def test_discover_enabled_warns_for_enabled_builtin_import_errors():
 
 
 def test_discover_all_builtin_shadows_plugin():
-    from nanobot.channels.registry import discover_all
     from nanobot.channels.base import BaseChannel
-    
+    from nanobot.channels.registry import discover_all
+
     class FakeDiscord(BaseChannel):
         pass
 
