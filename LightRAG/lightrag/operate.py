@@ -4624,15 +4624,17 @@ async def _hydrate_chunk_media(
         # Fast path: this process has ingested this (fresh) workspace itself
         # and no chunk carried media, so hydration would find nothing.
         return chunks
-    chunk_ids = [c["chunk_id"] for c in chunks if c.get("chunk_id")]
-    if not chunk_ids:
+    # Filter chunk_ids to only those we need (skip None/empty)
+    # Convert to set first to deduplicate
+    unique_chunk_ids = list(set(c["chunk_id"] for c in chunks if c.get("chunk_id")))
+    if not unique_chunk_ids:
         return chunks
     try:
-        chunk_data_list = await text_chunks_db.get_by_ids(chunk_ids)
+        chunk_data_list = await text_chunks_db.get_by_ids(unique_chunk_ids)
     except Exception as exc:
         logger.warning(f"Failed to hydrate chunk media from text_chunks: {exc}")
         return chunks
-    media_by_id = dict(zip(chunk_ids, chunk_data_list))
+    media_by_id = dict(zip(unique_chunk_ids, chunk_data_list))
     found_media = False
     for chunk in chunks:
         data = media_by_id.get(chunk.get("chunk_id"))
@@ -5060,9 +5062,16 @@ async def _attach_content_headings(
     if not text_chunks_db or not chunks:
         return
     tokenizer = text_chunks_db.global_config.get("tokenizer")
-    chunk_ids = [c.get("chunk_id") for c in chunks]
-    chunk_data_list = await text_chunks_db.get_by_ids(chunk_ids)
-    for chunk, data in zip(chunks, chunk_data_list):
+    unique_chunk_ids = list(set(c.get("chunk_id") for c in chunks if c.get("chunk_id")))
+    if not unique_chunk_ids:
+        return
+    chunk_data_list = await text_chunks_db.get_by_ids(unique_chunk_ids)
+    data_by_id = dict(zip(unique_chunk_ids, chunk_data_list))
+    for chunk in chunks:
+        chunk_id = chunk.get("chunk_id")
+        if not chunk_id:
+            continue
+        data = data_by_id.get(chunk_id)
         if not isinstance(data, dict):
             continue
         headings = _truncate_section_context(
