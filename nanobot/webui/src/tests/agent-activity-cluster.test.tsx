@@ -1414,6 +1414,33 @@ describe("AgentActivityCluster", () => {
     );
   });
 
+  it("groups LightRAG retrieval under Knowledge Base instead of Web", () => {
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-lightrag",
+          role: "tool",
+          kind: "trace",
+          content: 'lightrag_query({"query":"transformer architecture"})',
+          traces: ['lightrag_query({"query":"transformer architecture"})'],
+          toolEvents: [{
+            phase: "end",
+            call_id: "call-rag",
+            name: "lightrag_query",
+            arguments: { query: "transformer architecture" },
+          }],
+          createdAt: 1,
+        }]}
+        isTurnStreaming
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByText("Knowledge Base")).toBeInTheDocument();
+    expect(screen.queryByText("Web")).not.toBeInTheDocument();
+    expect(screen.getByText("Searching")).toBeInTheDocument();
+  });
+
   it("shows missing evidence as a file-safe placeholder", () => {
     render(
       <AgentActivityCluster

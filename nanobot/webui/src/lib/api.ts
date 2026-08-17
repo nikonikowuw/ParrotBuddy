@@ -232,8 +232,12 @@ export function fileRawUrl(
 export function withGatewayToken(href: string, token: string): string {
   if (!href || !token) return href;
   try {
-    const isRelative = href.startsWith("/");
+    const isRelative = href.startsWith("/") && !href.startsWith("//");
     const url = isRelative ? new URL(href, "http://localhost") : new URL(href);
+    if (!isRelative) {
+      const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+      if (!currentOrigin || url.origin !== currentOrigin) return href;
+    }
     if (!url.pathname.startsWith("/api/lightrag/file/")) return href;
 
     const cleanedPath = url.pathname.replace(/(?:%22|%27|["'\\])+$/gi, "").replace(/\/+$/, "");

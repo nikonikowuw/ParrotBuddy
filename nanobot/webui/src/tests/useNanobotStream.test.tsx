@@ -832,7 +832,7 @@ describe("useNanobotStream", () => {
     }]);
   });
 
-  it("keeps interrupted pre-tool text as assistant output before activity", async () => {
+  it("demotes interrupted pre-tool text into reasoning like the history replayer", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-stream-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -866,7 +866,9 @@ describe("useNanobotStream", () => {
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.messages[0]).toMatchObject({
       role: "assistant",
-      content: "I created the files.",
+      content: "",
+      reasoning: "I created the files.",
+      isStreaming: false,
     });
     expect(result.current.messages[1]).toMatchObject({
       role: "tool",
@@ -879,7 +881,7 @@ describe("useNanobotStream", () => {
     });
   });
 
-  it("does not replace interrupted pre-tool text with final stream_end text", () => {
+  it("preserves interrupted pre-tool text in reasoning instead of losing it", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-stream-end-final", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -911,7 +913,8 @@ describe("useNanobotStream", () => {
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.messages[0]).toMatchObject({
       role: "assistant",
-      content: "I will inspect the project first.",
+      content: "",
+      reasoning: "I will inspect the project first.",
     });
     expect(result.current.messages[1]).toMatchObject({
       role: "tool",
@@ -925,7 +928,7 @@ describe("useNanobotStream", () => {
     });
   });
 
-  it("splits live assistant output around tool hints without moving it into reasoning", async () => {
+  it("demotes pre-tool chatter into reasoning so the turn stays one activity cluster", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-live-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -955,9 +958,10 @@ describe("useNanobotStream", () => {
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.messages[0]).toMatchObject({
       role: "assistant",
-      content: "Lint passed; now rendering the video.",
+      content: "",
+      reasoning: "Lint passed; now rendering the video.",
+      isStreaming: false,
     });
-    expect(result.current.messages[0].reasoning).toBeUndefined();
     expect(result.current.messages[1]).toMatchObject({
       role: "tool",
       kind: "trace",
@@ -968,6 +972,64 @@ describe("useNanobotStream", () => {
       content: "Rendered successfully.",
     });
     expect(result.current.messages[2].reasoning).toBeUndefined();
+  });
+
+  it("keeps a multi-tool turn as one activity cluster despite interrupted chatter", async () => {
+    // Regression: a turn with several tool calls, each preceded by streamed
+    // pre-tool chatter, must collapse into a single activity cluster so the
+    // "Worked" header is not duplicated per tool boundary. The chatter is
+    // demoted into reasoning exactly like the history replayer does.
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-multi-tool", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      result.current.send("Draw a diagram");
+      fake.emit("chat-multi-tool", { event: "delta", chat_id: "chat-multi-tool", text: "I will inspect the env first." });
+      fake.emit("chat-multi-tool", { event: "stream_end", chat_id: "chat-multi-tool", resuming: true });
+      fake.emit("chat-multi-tool", {
+        event: "message",
+        chat_id: "chat-multi-tool",
+        text: "check tool",
+        kind: "tool_hint",
+        tool_events: [{ phase: "start", name: "read_file", arguments: { path: "SKILL.md" }, call_id: "c1" }],
+      });
+      fake.emit("chat-multi-tool", { event: "message", chat_id: "chat-multi-tool", text: "", kind: "progress", tool_events: [{ phase: "end", name: "read_file", arguments: { path: "SKILL.md" }, call_id: "c1" }] });
+      fake.emit("chat-multi-tool", { event: "delta", chat_id: "chat-multi-tool", text: "No tool here; using PIL." });
+      fake.emit("chat-multi-tool", { event: "stream_end", chat_id: "chat-multi-tool", resuming: true });
+      fake.emit("chat-multi-tool", {
+        event: "message",
+        chat_id: "chat-multi-tool",
+        text: "run it",
+        kind: "tool_hint",
+        tool_events: [{ phase: "start", name: "exec", arguments: { command: "python3 draw.py" }, call_id: "c2" }],
+      });
+      fake.emit("chat-multi-tool", { event: "message", chat_id: "chat-multi-tool", text: "", kind: "progress", tool_events: [{ phase: "end", name: "exec", arguments: { command: "python3 draw.py" }, call_id: "c2" }] });
+      fake.emit("chat-multi-tool", { event: "delta", chat_id: "chat-multi-tool", text: "Diagram saved." });
+      fake.emit("chat-multi-tool", { event: "stream_end", chat_id: "chat-multi-tool" });
+      fake.emit("chat-multi-tool", { event: "turn_end", chat_id: "chat-multi-tool" });
+    });
+
+    await flushStreamFrame();
+
+    const messages = result.current.messages;
+    // user + 2 demoted reasoning rows + 2 trace rows + final answer
+    expect(messages).toHaveLength(6);
+    expect(messages[0]).toMatchObject({ role: "user" });
+    expect(messages[1]).toMatchObject({ role: "assistant", content: "", reasoning: "I will inspect the env first.", isStreaming: false });
+    expect(messages[2]).toMatchObject({ role: "tool", kind: "trace", traces: ['read_file({"path":"SKILL.md"})'] });
+    expect(messages[3]).toMatchObject({ role: "assistant", content: "", reasoning: "No tool here; using PIL.", isStreaming: false });
+    expect(messages[4]).toMatchObject({ role: "tool", kind: "trace", traces: ['exec({"command":"python3 draw.py"})'] });
+    expect(messages[5]).toMatchObject({ role: "assistant", content: "Diagram saved." });
+    // Every activity member shares the same turn, so the timeline folds them
+    // into one cluster with a single "Worked" header.
+    const activityIds = messages
+      .slice(1, 5)
+      .map((m) => m.activitySegmentId)
+      .filter((segment): segment is string => typeof segment === "string");
+    expect(activityIds.length).toBeGreaterThan(0);
+    expect(new Set(activityIds).size).toBe(1);
   });
 
   it("opens a new activity segment for reasoning after file edit activity", async () => {

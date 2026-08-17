@@ -2,7 +2,14 @@ import type { UIMessage } from "./types";
 
 function isFilePatternReference(val: string): boolean {
   if (!val || val.length > 250) return false;
-  return /(?:[*?[\]{}]|(?:\*\*|\/\*))/.test(val);
+  return /(?:[*?]|(?:\*\*|\/\*))/.test(val);
+}
+
+function isTrustedLocalUrl(url: URL, href: string): boolean {
+  if (href.startsWith("/") && !href.startsWith("//")) return true;
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  if (currentOrigin && url.origin === currentOrigin) return true;
+  return ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
 }
 
 export function fileReferenceFromUrl(
@@ -14,6 +21,7 @@ export function fileReferenceFromUrl(
 
     // Legacy LightRAG document URL: /documents/file/<rel-path>
     if (url.pathname.includes("/documents/file/")) {
+      if (!isTrustedLocalUrl(url, href)) return null;
       const parts = url.pathname.split("/documents/file/");
       const rawPath = decodeURIComponent(parts[1] ?? "");
       const name = rawPath.split("/").filter(Boolean).pop() || rawPath;
@@ -24,6 +32,7 @@ export function fileReferenceFromUrl(
 
     // Gateway-proxied LightRAG document URL: /api/lightrag/file/<server>/<rel-path>
     if (url.pathname.startsWith("/api/lightrag/file/")) {
+      if (!isTrustedLocalUrl(url, href)) return null;
       const rest = url.pathname.slice("/api/lightrag/file/".length);
       const rawPath = decodeURIComponent(rest.split("/").slice(1).join("/"));
       const name = rawPath.split("/").filter(Boolean).pop() || rawPath;
@@ -46,13 +55,24 @@ export interface DocumentReferenceItem {
   href?: string;
 }
 
+/** Markdown escapes emitted by the LightRAG formatter. */
+const MARKDOWN_ESCAPE_RE = /\\(.)/g;
+const MARKDOWN_ESCAPABLE = new Set([
+  "\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "!", "|", ">", "+",
+]);
+
 export function extractDocumentReferencesFromText(text: string): DocumentReferenceItem[] {
   if (!text) return [];
   const items: DocumentReferenceItem[] = [];
   const seen = new Set<string>();
 
   const addRef = (name: string, fullPath: string, href?: string) => {
-    const cleanName = name.replace(/^(?:📄|📝|📊|🖼️|📦|🎵|🎥|💻|📎)\s*/u, "").trim();
+    const cleanName = name
+      .replace(/^(?:📄|📝|📊|🖼️|📦|🎵|🎥|💻|📎)\s*/u, "")
+      .replace(MARKDOWN_ESCAPE_RE, (match, char: string) => (
+        MARKDOWN_ESCAPABLE.has(char) ? char : match
+      ))
+      .trim();
     if (!cleanName) return;
     const key = href || fullPath || cleanName;
     if (!seen.has(key)) {
@@ -62,7 +82,7 @@ export function extractDocumentReferencesFromText(text: string): DocumentReferen
   };
 
   // 1. Match LightRAG reference lines: e.g. "1. [label](url)" or "1. filename.pdf (id:1)"
-  const lightragLineRegex = /^\s*\d+\.\s*(?:\[([^\]]+)\]\(([^)]+)\)|([^\s(]+)(?:\s+\(id:[^)]+\))?)/gm;
+  const lightragLineRegex = /^\s*\d+\.\s*(?:\[((?:\\.|[^\]])+)\]\(([^)]+)\)|([^\s(]+)(?:\s+\(id:[^)]+\))?)/gm;
   let match: RegExpExecArray | null;
   while ((match = lightragLineRegex.exec(text)) !== null) {
     const label = match[1];

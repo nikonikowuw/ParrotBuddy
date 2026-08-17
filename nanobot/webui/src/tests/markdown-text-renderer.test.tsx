@@ -87,6 +87,48 @@ describe("MarkdownTextRenderer", () => {
     );
   });
 
+
+  it("renders a compact LightRAG PDF citation label without losing the source path", () => {
+    const { container } = render(
+      <MarkdownTextRenderer>
+        {
+          "1. [📄Original Paper (1706.03762v7)](/api/lightrag/file/proj/papers/Original%20Paper%20%281706.03762v7%29.pdf)"
+        }
+      </MarkdownTextRenderer>,
+    );
+
+    const chip = screen.getByTestId("inline-file-path");
+    expect(chip).toHaveTextContent("Original Paper (1706.03762v7)");
+    expect(chip).not.toHaveTextContent(".pdf");
+    expect(chip).toHaveAttribute(
+      "aria-label",
+      "papers/Original Paper (1706.03762v7).pdf",
+    );
+    expect(container.querySelector("a")).toHaveAttribute(
+      "href",
+      "/api/lightrag/file/proj/papers/Original%20Paper%20%281706.03762v7%29.pdf",
+    );
+  });
+
+  it("renders the backend's escaped citation label without stray backslashes", () => {
+    // The backend backslash-escapes ``_``/``*`` in the label while leaving
+    // parentheses literal; the markdown parser must resolve the escapes so
+    // the chip shows the clean title (and no ``\(" math misparse).
+    render(
+      <MarkdownTextRenderer>
+        {"1. [📄my\\_report (draft v2)](/api/lightrag/file/proj/my_report%20%28draft%20v2%29.pdf)"}
+      </MarkdownTextRenderer>,
+    );
+
+    const chip = screen.getByTestId("inline-file-path");
+    expect(chip).toHaveTextContent("my_report (draft v2)");
+    expect(chip).not.toHaveTextContent("\\");
+    expect(chip).toHaveAttribute(
+      "aria-label",
+      "my_report (draft v2).pdf",
+    );
+  });
+
   it("keeps external file URLs as plain links (not file chips)", () => {
     const onOpenFilePreview = vi.fn();
     const { container } = render(
@@ -425,7 +467,6 @@ describe("MarkdownTextRenderer", () => {
 
     expect(container.querySelector(".katex")).toBeInTheDocument();
   });
-});
 
   it("renders retrieved LightRAG media image with its exact gateway URL", () => {
     render(
@@ -461,8 +502,7 @@ describe("MarkdownTextRenderer", () => {
     );
     expect(container).toHaveTextContent("Image context: 系统架构图。");
   });
-
-
+});
 describe("withGatewayToken", () => {
   it("appends the gateway token only to proxied LightRAG file URLs", () => {
     expect(withGatewayToken("/api/lightrag/file/proj/demo.pdf", "tok")).toBe(
@@ -472,7 +512,7 @@ describe("withGatewayToken", () => {
       "/api/lightrag/file/proj/img.png?x=1&token=tok",
     );
     expect(withGatewayToken("http://my-server.com:8765/api/lightrag/file/proj/demo.pdf", "tok")).toBe(
-      "http://my-server.com:8765/api/lightrag/file/proj/demo.pdf?token=tok",
+      "http://my-server.com:8765/api/lightrag/file/proj/demo.pdf",
     );
     // Non-gateway URLs are left untouched.
     expect(withGatewayToken("http://evil.example/x.png", "tok")).toBe(
@@ -503,14 +543,18 @@ describe("MarkdownTextRenderer token propagation", () => {
     expect(img!.getAttribute("src")).toContain("?token=tok");
   });
 
-  it("leaves LightRAG file URLs unchanged when no token is available", () => {
+  it("keeps external LightRAG-looking images free of the gateway token", () => {
     render(
-      <MarkdownTextRenderer>
-        {"1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)"}
-      </MarkdownTextRenderer>,
+      <ClientProvider client={{} as import("@/lib/nanobot-client").NanobotClient} token="tok" modelName={null}>
+        <MarkdownTextRenderer>
+          {"![external](https://evil.example/api/lightrag/file/proj/image.png)"}
+        </MarkdownTextRenderer>
+      </ClientProvider>,
     );
 
-    const link = screen.getByRole("link", { name: /demo\.pdf/ });
-    expect(link.getAttribute("href")).toBe("/api/lightrag/file/proj/demo.pdf");
+    expect(document.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://evil.example/api/lightrag/file/proj/image.png",
+    );
   });
 });

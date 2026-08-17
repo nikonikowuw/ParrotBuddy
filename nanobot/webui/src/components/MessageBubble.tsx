@@ -237,7 +237,8 @@ export function MessageBubble({
               {referenceDocs.map((doc) => (
                 <FileReferenceChip
                   key={doc.href}
-                  path={doc.name}
+                  path={doc.fullPath}
+                  displayName={doc.name}
                   tooltipPath={doc.fullPath}
                   previewPath={doc.fullPath}
                   display="name"

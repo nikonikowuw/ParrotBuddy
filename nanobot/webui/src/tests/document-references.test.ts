@@ -37,6 +37,8 @@ describe("document-references", () => {
       fileReferenceFromUrl("https://arxiv.org/pdf/2401.00001.pdf"),
     ).toBeNull();
     expect(fileReferenceFromUrl("https://example.com/report.pdf")).toBeNull();
+    expect(fileReferenceFromUrl("https://evil.example/documents/file/report.pdf")).toBeNull();
+    expect(fileReferenceFromUrl("https://evil.example/api/lightrag/file/proj/report.pdf")).toBeNull();
     expect(
       fileReferenceFromUrl(
         "https://github.com/user/repo/blob/main/docs/spec.md",
@@ -46,11 +48,50 @@ describe("document-references", () => {
     expect(fileReferenceFromUrl("https://example.com/page")).toBeNull();
   });
 
+
+  it("keeps a compact PDF citation label separate from its source path", () => {
+    const refs = extractDocumentReferencesFromText(
+      "1. [📄Original Paper (1706.03762v7)](/api/lightrag/file/proj/papers/Original%20Paper%20%281706.03762v7%29.pdf) (id:1)",
+    );
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toEqual({
+      name: "Original Paper (1706.03762v7)",
+      fullPath: "papers/Original Paper (1706.03762v7).pdf",
+      href: "/api/lightrag/file/proj/papers/Original%20Paper%20%281706.03762v7%29.pdf",
+    });
+  });
+
+  it("unescapes the backend's markdown escapes in citation labels", () => {
+    // ``_`` arrives backslash-escaped from the backend; the extracted
+    // label must match what the markdown renderer shows (parentheses stay
+    // literal, so ``\(" math never enters the picture).
+    const refs = extractDocumentReferencesFromText(
+      "1. [📄my\\_report (draft v2)](/api/lightrag/file/proj/my_report%20%28draft%20v2%29.pdf) (id:1)",
+    );
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toEqual({
+      name: "my_report (draft v2)",
+      fullPath: "my_report (draft v2).pdf",
+      href: "/api/lightrag/file/proj/my_report%20%28draft%20v2%29.pdf",
+    });
+  });
+
   it("does not collect external URLs as document references", () => {
     const text =
       "See https://arxiv.org/pdf/2401.00001.pdf and https://example.com/report.pdf";
     const refs = extractDocumentReferencesFromText(text);
     expect(refs).toHaveLength(0);
+  });
+
+  it("extracts labels containing escaped closing brackets", () => {
+    const refs = extractDocumentReferencesFromText(
+      "1. [📄file[name\\].pdf](/api/lightrag/file/proj/file%5Bname%5D.pdf) (id:1)",
+    );
+    expect(refs).toEqual([{
+      name: "file[name].pdf",
+      fullPath: "file[name].pdf",
+      href: "/api/lightrag/file/proj/file%5Bname%5D.pdf",
+    }]);
   });
 
   it("extracts gateway LightRAG references from numbered lines", () => {

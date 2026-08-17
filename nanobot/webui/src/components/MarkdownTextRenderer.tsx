@@ -481,7 +481,8 @@ export default function MarkdownTextRenderer({
               {...props}
             >
               <FileReferenceChip
-                path={cleanLabel || urlRef.name}
+                path={urlRef.fullPath}
+                displayName={cleanLabel || urlRef.name}
                 tooltipPath={urlRef.fullPath}
                 display="name"
               />

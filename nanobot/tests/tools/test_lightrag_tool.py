@@ -146,7 +146,7 @@ async def test_cli_default_workspace_queries_server(monkeypatch):
     }
     assert "RAG combines retrieval with generation." in result
     assert "## Knowledge Base: proj1" in result
-    assert "[/docs/rag.pdf](/api/lightrag/file/proj1/docs/rag.pdf) (id:1)" in result
+    assert "[📄rag](/api/lightrag/file/proj1/docs/rag.pdf) (id:1)" in result
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_cli_include_chunk_content(monkeypatch):
 
     assert captured["json"]["include_chunk_content"] is True
     assert "## Knowledge Base: proj" in result
-    assert "[/c.md](/api/lightrag/file/proj/c.md) (id:7)" in result
+    assert "[c.md](/api/lightrag/file/proj/c.md) (id:7)" in result
     assert "line A" in result
     assert "line B" in result
 
@@ -663,12 +663,35 @@ def test_format_server_section_emits_parent_link_and_media_context():
     text = tool._format_server_section(
         "proj", data, include_refs=True, api_base="http://lightrag:9621"
     )
-    # Parent document citation unchanged.
-    assert "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
+    # Parent document citation uses a compact PDF label while its URL stays exact.
+    assert "1. [📄demo](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
     # Indexed VLM description as Image context.
     assert "Image context: 系统架构图。图中展示了系统模块之间的调用关系。" in text
     # Separate unnumbered Markdown image line with the gateway URL.
     assert "![系统架构图](/api/lightrag/file/proj/demo.blocks.assets/image.png)" in text
+
+
+def test_format_server_section_uses_compact_paper_label():
+    tool = _tool(servers=[_server("proj")])
+    data = {
+        "response": "answer",
+        "references": [
+            {
+                "reference_id": "1",
+                "file_path": "papers/Original Paper (1706.03762v7).pdf",
+            }
+        ],
+    }
+    text = tool._format_server_section(
+        "proj", data, include_refs=True, api_base="http://lightrag:9621"
+    )
+
+    assert "1. [📄Original Paper (1706.03762v7)](" in text
+    assert (
+        "/api/lightrag/file/proj/papers/Original%20Paper%20%281706.03762v7%29.pdf"
+        in text
+    )
+    assert "papers/Original Paper" not in text.split("](", 1)[0]
 
 
 def test_format_server_section_multiple_media_emit_multiple_lines():
@@ -744,7 +767,7 @@ def test_format_server_section_without_media_is_unchanged():
     text = tool._format_server_section(
         "proj", data, include_refs=True, api_base="http://lightrag:9621"
     )
-    assert "1. [demo.pdf](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
+    assert "1. [📄demo](/api/lightrag/file/proj/demo.pdf) (id:1)" in text
     assert "Image context" not in text
     assert "![" not in text
 
@@ -805,8 +828,9 @@ def test_format_server_section_escapes_untrusted_markdown():
         "response": "answer",
         "references": [
             {
-                "reference_id": "1",
+                "reference_id": "1\n[id](http://evil)",
                 "file_path": "demo[1].pdf",
+                "content": ["source [link](http://evil)"],
                 "media": [
                     {
                         "type": "image",
@@ -822,17 +846,25 @@ def test_format_server_section_escapes_untrusted_markdown():
     text = tool._format_server_section(
         "proj", data, include_refs=True, api_base="http://lightrag:9621"
     )
-    # No raw Markdown link/image may survive unescaped in the label/text.
-    assert "](http://evil)" not in text
+    # ``]`` is always backslash-escaped, so an injected ``[...](url)`` or
+    # ``![...](url)`` can never close its label: no raw Markdown link/image
+    # may survive.  (``[``/``(``/``)`` are deliberately left literal — see
+    # ``_md_safe_text`` — so the escaped-close is the injection barrier.)
+    assert "图![x](http://evil)" not in text
+    assert "[link](http://evil)" not in text
+    assert "[id](http://evil)" not in text
+    assert "source [link](http://evil)" not in text
     assert "![x]" not in text
-    # The injected pieces are backslash-escaped instead.
-    assert "图\\!\\[x\\]" in text
-    assert "\\[link\\]" in text
+    # The injected pieces are neutralized by escaping the closing bracket.
+    assert "图\\![x\\]" in text
+    assert "[link\\]" in text
     assert "\\`code\\`" in text
     assert "\\*bold\\*" in text
-    # The parent label is escaped too (brackets), while the URL keeps
-    # brackets percent-encoded so the gateway path is unambiguous.
-    assert "1. [demo\\[1\\].pdf](" in text
+
+    # The parent label keeps ``[`` literal and escapes only the closing
+    # bracket, while the URL keeps brackets percent-encoded so the gateway
+    # path is unambiguous.
+    assert "1. [📄demo[1\\]](" in text
     assert "demo%5B1%5D.pdf" in text
 
 

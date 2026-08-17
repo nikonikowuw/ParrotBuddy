@@ -43,7 +43,16 @@ def _server_error(name: str, message: str) -> ToolResult:
     return ToolResult.error(f"## Knowledge Base: {name}\n(error: {message})")
 
 
-_MD_SPECIAL_RE = re.compile(r"[\\`*_{}\[\]()#!|>+]")
+_MD_SPECIAL_RE = re.compile(r"[\\`*_{}\]#!|>+]")
+
+
+def _reference_display_name(path: str) -> str:
+    """Return a compact citation label while preserving the real file path."""
+    normalized = path.replace("\\", "/")
+    basename = normalized.rsplit("/", 1)[-1] or normalized
+    if basename.lower().endswith(".pdf"):
+        return f"📄{basename[:-4]}"
+    return basename
 
 
 def _md_safe_text(value: str) -> str:
@@ -56,6 +65,17 @@ def _md_safe_text(value: str) -> str:
     specials are backslash-escaped.  Dots and dashes are deliberately left
     untouched (they dominate filenames such as ``demo.pdf``) and CJK text
     passes through unchanged.
+
+    ``[`` and parentheses are deliberately left unescaped.  The WebUI
+    markdown stack makes backslash-escaping them both unreliable and
+    unnecessary: the custom ``remark-tex-math`` extension reads a
+    backslash followed by ``(`` as an inline LaTeX delimiter (so escaping a
+    literal ``(`` would swallow the rest of a citation label such as
+    ``Original Paper (1706.03762v7)`` during rendering), and
+    ``remark-gfm`` mis-tokenizes a backslash-escaped ``[`` as a real link
+    opener.  Since ``]`` is always escaped, an injected ``[...](url)`` or
+    ``![...](url)`` can never close its label, so no link
+    or image can be formed even with ``[``/``(``/``)`` left literal.
     """
     value = re.sub(r"[\r\n]+", " ", value)
     return _MD_SPECIAL_RE.sub(lambda m: "\\" + m.group(0), value)
@@ -211,7 +231,7 @@ class LightRagQueryTool(Tool):
                     "For questions that could be informed by this indexed knowledge, "
                     "call the lightrag_query tool first (with the user's question as `query`) before answering.",
                     "When lightrag_query returns references:",
-                    "- Numbered document links (e.g. `1. [demo.pdf](...)`) are source/document citations; keep them as document links.",
+                    "- Numbered document links (e.g. `1. [📄Document title](...)`) are source/document citations; keep them as document links.",
                     "- `Image context:` text is the indexed VLM description of a retrieved image; you may use it as visual understanding without calling another image model.",
                     "- Unnumbered Markdown image lines (e.g. `![name](/api/lightrag/file/proj/image.png)`) are renderable retrieved media; preserve them when the answer should show the image.",
                     "- Do not turn a parent document link into an image, and do not add image lines to the document-reference list manually.",
@@ -285,15 +305,18 @@ class LightRagQueryTool(Tool):
                 if not isinstance(ref, dict):
                     continue
                 path = str(ref.get("file_path") or ref.get("path") or "")
-                rid = str(ref.get("reference_id") or ref.get("id") or "")
+                rid = _md_safe_text(str(ref.get("reference_id") or ref.get("id") or "").strip())
                 if path:
+                    display_name = str(ref.get("display_name") or "").strip()
+                    if not display_name:
+                        display_name = _reference_display_name(path)
                     if api_base:
                         file_url = _gateway_file_url(server_name, path)
-                        head = f"{i}. [{_md_safe_text(path)}]({file_url})" + (
+                        head = f"{i}. [{_md_safe_text(display_name)}]({file_url})" + (
                             f" (id:{rid})" if rid else ""
                         )
                     else:
-                        head = f"{i}. {_md_safe_text(path)}" + (
+                        head = f"{i}. {_md_safe_text(display_name)}" + (
                             f" (id:{rid})" if rid else ""
                         )
                 else:
@@ -301,9 +324,9 @@ class LightRagQueryTool(Tool):
                 lines.append(head)
                 content = ref.get("content")
                 if isinstance(content, list) and content:
-                    lines.append("   " + "\n   ".join(str(c) for c in content if c))
+                    lines.append("   " + "\n   ".join(_md_safe_text(str(c)) for c in content if c))
                 elif isinstance(content, str) and content:
-                    lines.append(f"   {content}")
+                    lines.append(f"   {_md_safe_text(content)}")
                 # Retrieved media context: expose the indexed VLM description
                 # and one unnumbered Markdown image line per media item.  The
                 # image lines stay indented and unnumbered so the WebUI's

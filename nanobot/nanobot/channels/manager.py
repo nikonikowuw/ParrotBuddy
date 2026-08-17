@@ -574,14 +574,28 @@ class ChannelManager:
                     continue
 
                 if progress_event:
+                    structured_activity = bool(
+                        progress_event.tool_events or progress_event.file_edit_events
+                    )
                     if progress_event.tool_hint and not self._should_send_progress(
                         msg.channel, tool_hint=True,
                     ):
-                        continue
+                        # The WebUI renders live tool progress from structured
+                        # events; those must reach it even when text-only tool
+                        # hints or generic progress are disabled.
+                        if not (
+                            msg.channel == "websocket"
+                            and structured_activity
+                        ):
+                            continue
                     if not progress_event.tool_hint and not self._should_send_progress(
                         msg.channel, tool_hint=False,
                     ):
-                        continue
+                        if not (
+                            msg.channel == "websocket"
+                            and structured_activity
+                        ):
+                            continue
 
                 if isinstance(event, RetryWaitEvent):
                     continue

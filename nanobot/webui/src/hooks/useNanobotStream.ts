@@ -345,6 +345,48 @@ function stripCoveredFileEditToolHints(message: UIMessage, edits: UIFileEdit[]):
   };
 }
 
+/**
+ * Demote an interrupted streaming answer segment into reasoning before a tool
+ * executes. Mirrors the transcript replayer's ``demote_interrupted_assistant``
+ * so live rendering and history replay stay isomorphic: pre-tool chatter the
+ * model emitted mid-turn is folded into the reasoning row of the preceding
+ * activity cluster instead of splitting the turn into several activity groups
+ * (multiple "Worked" headers) around each tool boundary.
+ */
+function demoteInterruptedAssistant(prev: UIMessage[], segmentId?: string): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const candidate = prev[i];
+    if (candidate.role === "user") break;
+    const content = candidate.content ?? "";
+    if (
+      candidate.role !== "assistant"
+      || candidate.kind === "trace"
+      || !candidate.isStreaming
+      || typeof content !== "string"
+      || content.trim().length === 0
+      || !!candidate.media?.length
+    ) continue;
+    const reasoningParts = [candidate.reasoning, content].filter(
+      (part): part is string => typeof part === "string" && part.trim().length > 0,
+    );
+    return [
+      ...prev.slice(0, i),
+      {
+        ...candidate,
+        content: "",
+        reasoning: reasoningParts.join("\n\n"),
+        reasoningStreaming: false,
+        isStreaming: false,
+        ...(candidate.activitySegmentId ?? segmentId
+          ? { activitySegmentId: candidate.activitySegmentId ?? segmentId }
+          : {}),
+      },
+      ...prev.slice(i + 1),
+    ];
+  }
+  return prev;
+}
+
 function traceMessageIsEmpty(message: UIMessage): boolean {
   const traces = message.traces;
   const hasTrace = traces?.length
@@ -976,7 +1018,7 @@ export function useNanobotStream(
           const turn = turnFieldsFromEvent(ev, "activity");
           setMessages((prev) => {
             const segmentId = ensureActivitySegmentId();
-            const base = prev;
+            const base = demoteInterruptedAssistant(prev, segmentId);
             const visibleStructuredEvents = filterCoveredFileEditToolEvents(base, structuredEvents);
             const structuredLines = toolTraceLinesFromEvents(visibleStructuredEvents);
             const lines = structuredLines.length > 0

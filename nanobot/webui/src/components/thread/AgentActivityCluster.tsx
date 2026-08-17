@@ -911,7 +911,10 @@ function describeActivityGroup(
     return { title: "Vision", icon: FileImage };
   }
   if (names.some((name) => /browser|screenshot/.test(name))) return { title: "Browser", icon: FileImage };
-  if (names.some((name) => /web|search|fetch|read|open|lightrag/.test(name))) return { title: "Web", icon: Search };
+  // RAG retrieval (``lightrag_query``) queries a knowledge base, not the
+  // web — give it its own group instead of lumping it under "Web".
+  if (names.some((name) => /lightrag/.test(name))) return { title: "Knowledge Base", icon: Search };
+  if (names.some((name) => /web|search|fetch|read|open/.test(name))) return { title: "Web", icon: Search };
   if (names.some((name) => /exec|shell|terminal|bash|run_cli_app|cli_anything/.test(name))) return { title: "Shell", icon: Terminal };
   if (names.some((name) => /^mcp_|mcp/.test(name))) return { title: "MCP", icon: Server };
   if (message.fileEdits?.length) return { title: "Files", icon: Layers };

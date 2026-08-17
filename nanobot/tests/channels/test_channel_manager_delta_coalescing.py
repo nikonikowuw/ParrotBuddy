@@ -394,6 +394,127 @@ class TestProgressFiltering:
         assert send_mock.await_count == 1
         assert send_mock.await_args_list[0].args[0].content == "read_file(foo.py)"
 
+    @pytest.mark.asyncio
+    async def test_websocket_structured_tool_events_pass_despite_disabled_tool_hints(
+        self, manager, bus,
+    ):
+        """WebUI activity rendering needs structured tool events even when the
+        text-only ``sendToolHints`` flag is off (tool starts must render live)."""
+        manager.channels["websocket"] = MockChannel({}, bus)
+        manager.channels["websocket"].send_tool_hints = False
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="websocket",
+            chat_id="chat1",
+            event=ProgressEvent(
+                content="",
+                tool_hint=True,
+                tool_events=[{
+                    "phase": "start",
+                    "name": "lightrag_query",
+                    "call_id": "call_1",
+                    "arguments": {"query": "transformer"},
+                }],
+            ),
+        ))
+
+        task = asyncio.create_task(manager._dispatch_outbound())
+        try:
+            for _ in range(30):
+                if manager.channels["websocket"]._send_mock.await_count >= 1:
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        send_mock = manager.channels["websocket"]._send_mock
+        assert send_mock.await_count == 1
+        sent_event = outbound_event_from_message(send_mock.await_args_list[0].args[0])
+        assert isinstance(sent_event, ProgressEvent)
+        assert sent_event.tool_hint is True
+        assert sent_event.tool_events == [{
+            "phase": "start",
+            "name": "lightrag_query",
+            "call_id": "call_1",
+            "arguments": {"query": "transformer"},
+        }]
+
+    @pytest.mark.asyncio
+    async def test_websocket_structured_events_pass_when_progress_is_disabled(
+        self, manager, bus,
+    ):
+        """Structured tool lifecycle events remain complete independently of
+        generic text-progress visibility settings."""
+        manager.channels["websocket"] = MockChannel({}, bus)
+        manager.channels["websocket"].send_tool_hints = False
+        manager.channels["websocket"].send_progress = False
+        file_edit_mock = AsyncMock()
+        manager.channels["websocket"].send_file_edit_events = file_edit_mock
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="websocket",
+            chat_id="chat1",
+            event=ProgressEvent(
+                tool_events=[{"phase": "end", "name": "lightrag_query", "call_id": "call_1"}],
+            ),
+        ))
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="websocket",
+            chat_id="chat1",
+            event=ProgressEvent(
+                file_edit_events=[{"phase": "end", "tool": "write_file", "path": "out.txt"}],
+            ),
+        ))
+
+        task = asyncio.create_task(manager._dispatch_outbound())
+        try:
+            for _ in range(30):
+                if (
+                    manager.channels["websocket"]._send_mock.await_count >= 1
+                    and file_edit_mock.await_count >= 1
+                ):
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        assert manager.channels["websocket"]._send_mock.await_count == 1
+        assert file_edit_mock.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_non_websocket_tool_hint_still_gated_by_send_tool_hints(
+        self, manager, bus,
+    ):
+        """Text channels keep the ``sendToolHints`` gate: tool hints without
+        structured events stay dropped when the flag is off."""
+        manager.channels["mock"].send_tool_hints = False
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="mock",
+            chat_id="chat1",
+            event=ProgressEvent(content="read_file(foo.py)", tool_hint=True),
+        ))
+
+        task = asyncio.create_task(manager._dispatch_outbound())
+        try:
+            for _ in range(30):
+                if manager.channels["mock"]._send_mock.await_count >= 1:
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        assert manager.channels["mock"]._send_mock.await_count == 0
+
 
 class TestRetryWaitFiltering:
     """Internal provider retry heartbeats must never reach channels."""

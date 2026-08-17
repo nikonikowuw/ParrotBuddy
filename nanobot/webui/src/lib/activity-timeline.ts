@@ -367,7 +367,9 @@ function toolEventName(event: ToolProgressEvent): string {
 function activitySourceFromToolName(name: string): ActivityStepSource {
   const compact = name.toLowerCase();
   if (compact.includes("browser") || compact.includes("screenshot")) return "browser";
-  if (compact.includes("web") || compact.includes("search") || compact.includes("fetch") || compact.includes("read") || compact.includes("lightrag")) return "web";
+  // RAG retrieval (``lightrag_query``) queries a knowledge base, not the
+  // web — keep it out of the "web" source.
+  if (compact.includes("web") || compact.includes("search") || compact.includes("fetch") || compact.includes("read")) return "web";
   if (compact.includes("exec") || compact.includes("shell") || compact.includes("cli")) return "shell";
   if (compact.startsWith("mcp_") || compact === "mcp") return "mcp";
   if (compact.includes("file") || compact.includes("patch")) return "file";

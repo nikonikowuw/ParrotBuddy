@@ -38,6 +38,7 @@ interface FileReferenceChipProps {
   className?: string;
   textClassName?: string;
   previewPath?: string;
+  displayName?: string;
   onOpen?: (path: string) => void;
   testId?: string;
 }
@@ -50,12 +51,13 @@ export function FileReferenceChip({
   className,
   textClassName,
   previewPath,
+  displayName,
   onOpen,
   testId = "inline-file-path",
 }: FileReferenceChipProps) {
   const { directory, name } = splitFilePath(path);
   const kind = fileKindForPath(path);
-  const displayText = display === "path" ? path.replace(/\\/g, "/") : name;
+  const displayText = displayName ?? (display === "path" ? path.replace(/\\/g, "/") : name);
   const fullPath = tooltipPath || path;
   const targetPath = previewPath || tooltipPath || path;
   const interactive = Boolean(onOpen);
