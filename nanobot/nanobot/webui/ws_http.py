@@ -948,7 +948,15 @@ class GatewayHTTPHandler:
         # forwarding the raw path component unchanged.
         server_name = unquote(parts[0])
         file_path = unquote(parts[1])
+        normalized_file_path = file_path.replace("\\", "/")
+        if (
+            not normalized_file_path
+            or "\x00" in normalized_file_path
+            or any(part == ".." for part in normalized_file_path.split("/"))
+        ):
+            return _http_error(400, "Invalid lightrag file path")
 
+        file_path = normalized_file_path
         server = None
         # The lightrag tool config lives under ``tools.lightrag`` in the
         # full config.

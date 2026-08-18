@@ -76,6 +76,18 @@ def tool_event_result_extras(result: Any) -> tuple[list[Any], list[Any]]:
     return files, embeds
 
 
+def tool_event_references(result: Any) -> list[dict[str, Any]]:
+    references = getattr(result, "references", None)
+    if not isinstance(references, list):
+        return []
+    return [reference for reference in references if isinstance(reference, dict)]
+
+
+def tool_event_evidence_summary(result: Any) -> dict[str, Any] | None:
+    summary = getattr(result, "evidence_summary", None)
+    return summary if isinstance(summary, dict) else None
+
+
 def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     count = min(len(context.tool_calls), len(context.tool_results), len(context.tool_events))
@@ -97,6 +109,12 @@ def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str
             "files": files,
             "embeds": embeds,
         }
+        references = tool_event_references(result)
+        if references:
+            payload["references"] = references
+        evidence_summary = tool_event_evidence_summary(result)
+        if evidence_summary is not None:
+            payload["evidence"] = evidence_summary
         if phase == "error":
             if isinstance(result, str) and result.strip():
                 payload["error"] = result.strip()

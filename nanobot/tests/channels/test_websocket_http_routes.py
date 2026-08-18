@@ -2935,6 +2935,13 @@ async def test_lightrag_file_proxy_resolves_server_from_tools_config(
         == "http://127.0.0.1:9621/documents/file/1706.03762v7.blocks.assets/image.png"
     )
 
+    traversal = "/api/lightrag/file/LightRAG/%2e%2e%2fsecret.pdf"
+    traversal_req = _FakeReq(headers={"Host": "127.0.0.1:8765"}, path=traversal)
+    traversal_resp = await gateway.http._handle_lightrag_file(
+        conn, traversal_req, traversal
+    )
+    assert traversal_resp.status_code == 400
+
 
 async def test_lightrag_file_proxy_encodes_file_path_canonically(
     bus: MagicMock, monkeypatch: pytest.MonkeyPatch

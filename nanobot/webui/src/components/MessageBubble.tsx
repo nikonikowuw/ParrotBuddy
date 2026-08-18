@@ -23,7 +23,11 @@ import { CliAppMentionText } from "@/components/CliAppMentionText";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import { FileReferenceChip } from "@/components/FileReferenceChip";
-import { extractDocumentReferencesFromMessages } from "@/lib/document-references";
+import { SourcePanel } from "@/components/SourcePanel";
+import {
+  extractDocumentReferencesFromMessages,
+  extractRagEvidenceFromMessages,
+} from "@/lib/document-references";
 import { withGatewayToken } from "@/lib/api";
 import { useOptionalClientToken } from "@/providers/ClientProvider";
 import {
@@ -108,10 +112,14 @@ export function MessageBubble({
     [mcpPresets, message.mcpPresets],
   );
 
+  const ragEvidence = useMemo(
+    () => (message.role === "assistant" ? extractRagEvidenceFromMessages(activityMessages) : []),
+    [message.role, activityMessages],
+  );
   const referenceDocs = useMemo(() => {
-    if (message.role !== "assistant") return [];
+    if (message.role !== "assistant" || ragEvidence.length > 0) return [];
     return extractDocumentReferencesFromMessages(activityMessages, message.content);
-  }, [message.role, activityMessages, message.content]);
+  }, [message.role, activityMessages, message.content, ragEvidence.length]);
 
   useEffect(() => {
     return () => {
@@ -190,6 +198,7 @@ export function MessageBubble({
     : "";
   const automationTriggeredLabel = t("message.automationTriggered");
 
+  const showSources = !message.isStreaming;
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   const showCopyButton = showAssistantCopyAction && showAssistantActions;
   const showForkButton = showAssistantActions && !!onForkFromHere;
@@ -228,9 +237,11 @@ export function MessageBubble({
           >
             {message.content}
           </MarkdownText>
-          {referenceDocs.length > 0 && (
+          {showSources && ragEvidence.length > 0 ? (
+            <SourcePanel evidence={ragEvidence} onOpenFilePreview={onOpenFilePreview} />
+          ) : showSources && referenceDocs.length > 0 ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs">
-              <div className="flex items-center gap-1.5 font-medium text-muted-foreground mr-1">
+              <div className="mr-1 flex items-center gap-1.5 font-medium text-muted-foreground">
                 <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" />
                 <span>{t("message.references", { defaultValue: "Reference documents" })}</span>
               </div>
@@ -246,7 +257,7 @@ export function MessageBubble({
                 />
               ))}
             </div>
-          )}
+          ) : null}
           {media.length > 0 ? <MessageMedia media={media} align="left" onOpenFilePreview={onOpenFilePreview} /> : null}
           {showAssistantFooterRow ? (
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>

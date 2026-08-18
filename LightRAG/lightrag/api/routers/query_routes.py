@@ -6,11 +6,20 @@ import asyncio
 import json
 import time
 from typing import Any, Dict, List, Literal, Optional
+
 from fastapi import APIRouter, Depends
 from lightrag.base import QueryParam
 from lightrag.api.utils_api import get_combined_auth_dependency, internal_server_error
-from lightrag.utils import logger
+from lightrag.utils import (
+    _normalize_reference_source_url,
+    _safe_reference_document_path,
+    _safe_reference_media_path,
+    logger,
+)
 from pydantic import BaseModel, Field, field_validator
+
+
+_MAX_REFERENCE_CHUNK_CONTENT_CHARS = 8_000
 
 
 class QueryRequest(BaseModel):
@@ -154,6 +163,47 @@ class QueryRequest(BaseModel):
         return param
 
 
+class ReferenceChunk(BaseModel):
+    """Structured metadata for one retrieved chunk.
+
+    ``score`` is the best available score for this chunk and ``score_type``
+    identifies whether it came from reranking or vector similarity. The
+    explicit component fields prevent consumers from comparing unlike score
+    types by accident.
+    """
+
+    chunk_id: str = Field(description="Stable retrieved chunk identifier")
+    content: Optional[str] = Field(
+        default=None,
+        description="Matching chunk text (only present when requested)",
+    )
+    score: Optional[float] = Field(
+        default=None,
+        description="Best available chunk score; interpret together with score_type",
+    )
+    score_type: Optional[str] = Field(
+        default=None,
+        description="Score semantics, such as 'rerank' or 'vector'",
+    )
+    rerank_score: Optional[float] = Field(
+        default=None,
+        description="Explicit reranker relevance score",
+    )
+    vector_score: Optional[float] = Field(
+        default=None,
+        description="Explicit vector cosine similarity score",
+    )
+    distance: Optional[float] = Field(
+        default=None,
+        description="Raw vector backend distance; semantics are backend-specific",
+    )
+    retrieval_rank: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="One-based rank in the final retrieved chunk list for this document",
+    )
+
+
 class ReferenceMedia(BaseModel):
     """A retrieved media item aggregated under a parent document reference.
 
@@ -174,20 +224,73 @@ class ReferenceMedia(BaseModel):
         description="Indexed VLM description of the retrieved media",
     )
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        normalized = _safe_reference_media_path(value)
+        if normalized is None:
+            raise ValueError("media path must be a non-empty relative path without traversal")
+        return normalized
+
 
 class ReferenceItem(BaseModel):
-    """A single reference item in query responses."""
+    """A parent-document evidence item in a query response."""
 
     reference_id: str = Field(description="Unique reference identifier")
-    file_path: str = Field(description="Path to the source file")
+    file_path: str = Field(
+        description="Parent source document path; media paths never replace this value"
+    )
+    title: Optional[str] = Field(
+        default=None,
+        description="Optional document display title independent of file_path",
+    )
+    source_url: Optional[str] = Field(
+        default=None,
+        description="Optional credential-free external HTTP(S) source URL",
+    )
+    hit_count: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Number of final retrieved chunks grouped under this document",
+    )
+    best_score: Optional[float] = Field(
+        default=None,
+        description="Best score among chunks; interpret together with best_score_type",
+    )
+    best_score_type: Optional[str] = Field(
+        default=None,
+        description="Score semantics for best_score",
+    )
+    chunks: Optional[List[ReferenceChunk]] = Field(
+        default=None,
+        description="Retrieved chunk IDs and scores; content is opt-in",
+    )
     content: Optional[List[str]] = Field(
         default=None,
-        description="List of chunk contents from this file (only present when include_chunk_content=True)",
+        description="Legacy list of chunk contents (only present when include_chunk_content=True)",
     )
     media: Optional[List[ReferenceMedia]] = Field(
         default=None,
-        description="Retrieved media metadata (e.g. images) aggregated from the chunks of this reference",
+        description="Retrieved media metadata aggregated from this parent document",
     )
+
+    @field_validator("file_path")
+    @classmethod
+    def validate_file_path(cls, value: str) -> str:
+        normalized = _safe_reference_document_path(value)
+        if normalized is None:
+            raise ValueError("file_path must not be empty or contain traversal")
+        return normalized.replace("\\", "/")
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = _normalize_reference_source_url(value)
+        if normalized is None:
+            raise ValueError("source_url must be a valid HTTP(S) URL without credentials")
+        return normalized
 
 
 class QueryResponse(BaseModel):
@@ -252,6 +355,77 @@ class StreamChunkResponse(BaseModel):
     )
 
 
+def _enrich_references_with_chunk_content(
+    references: Any, data: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Add bounded-by-retrieval chunk text while retaining structured metadata."""
+    if not isinstance(references, list):
+        return []
+
+    chunks_by_reference: dict[str, list[dict[str, Any]]] = {}
+    for chunk in data.get("chunks", []) if isinstance(data, dict) else []:
+        if not isinstance(chunk, dict):
+            continue
+        reference_id = str(chunk.get("reference_id") or "")
+        chunk_id = str(chunk.get("chunk_id") or chunk.get("id") or "")
+        content = chunk.get("content")
+        if not reference_id or not chunk_id or not isinstance(content, str):
+            continue
+        chunk_payload: dict[str, Any] = {
+            "chunk_id": chunk_id,
+            "content": content[:_MAX_REFERENCE_CHUNK_CONTENT_CHARS],
+        }
+        for key in (
+            "score",
+            "score_type",
+            "rerank_score",
+            "vector_score",
+            "distance",
+            "retrieval_rank",
+        ):
+            if chunk.get(key) is not None:
+                chunk_payload[key] = chunk[key]
+        chunks_by_reference.setdefault(reference_id, []).append(chunk_payload)
+
+    enriched: list[dict[str, Any]] = []
+    for reference in references:
+        if not isinstance(reference, dict):
+            continue
+        copy = dict(reference)
+        reference_id = str(copy.get("reference_id") or "")
+        chunks = chunks_by_reference.get(reference_id, [])
+        if chunks:
+            existing_chunks = copy.get("chunks")
+            merged_chunks: list[dict[str, Any]] = []
+            if isinstance(existing_chunks, list):
+                for existing_chunk in existing_chunks:
+                    if not isinstance(existing_chunk, dict):
+                        continue
+                    existing_copy = dict(existing_chunk)
+                    if isinstance(existing_copy.get("content"), str):
+                        existing_copy["content"] = existing_copy["content"][:_MAX_REFERENCE_CHUNK_CONTENT_CHARS]
+                    merged_chunks.append(existing_copy)
+            by_id = {
+                str(chunk.get("chunk_id")): index
+                for index, chunk in enumerate(merged_chunks)
+                if chunk.get("chunk_id")
+            }
+            for chunk in chunks:
+                existing_index = by_id.get(chunk["chunk_id"])
+                if existing_index is None:
+                    by_id[chunk["chunk_id"]] = len(merged_chunks)
+                    merged_chunks.append(chunk)
+                else:
+                    merged_chunks[existing_index] = {
+                        **merged_chunks[existing_index],
+                        **chunk,
+                    }
+            copy["chunks"] = merged_chunks
+            copy["content"] = [chunk["content"] for chunk in chunks]
+        enriched.append(copy)
+    return enriched
+
+
 def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
     # Fresh router per call. A module-level instance would accumulate
     # duplicate routes when the factory is invoked more than once in the
@@ -284,6 +458,29 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                         "properties": {
                                             "reference_id": {"type": "string"},
                                             "file_path": {"type": "string"},
+                                            "title": {"type": "string"},
+                                            "source_url": {"type": "string", "format": "uri"},
+                                            "hit_count": {"type": "integer", "minimum": 1},
+                                            "best_score": {"type": "number"},
+                                            "best_score_type": {"type": "string"},
+                                            "chunks": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "chunk_id": {"type": "string"},
+                                                        "content": {"type": "string"},
+                                                        "score": {"type": "number"},
+                                                        "score_type": {"type": "string"},
+                                                        "rerank_score": {"type": "number"},
+                                                        "vector_score": {"type": "number"},
+                                                        "distance": {"type": "number"},
+                                                        "retrieval_rank": {"type": "integer", "minimum": 1},
+                                                    },
+                                                    "required": ["chunk_id"],
+                                                },
+                                                "description": "Retrieved chunk IDs and scores; content is opt-in",
+                                            },
                                             "content": {
                                                 "type": "array",
                                                 "items": {"type": "string"},
@@ -501,28 +698,10 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
             if not response_content:
                 response_content = "No relevant context found for the query."
 
-            # Enrich references with chunk content if requested
+            # Enrich structured chunk evidence only when the caller explicitly
+            # opts into chunk content; the legacy content list remains intact.
             if request.include_references and request.include_chunk_content:
-                chunks = data.get("chunks", [])
-                # Create a mapping from reference_id to chunk content
-                ref_id_to_content = {}
-                for chunk in chunks:
-                    ref_id = chunk.get("reference_id", "")
-                    content = chunk.get("content", "")
-                    if ref_id and content:
-                        # Collect chunk content; join later to avoid quadratic string concatenation
-                        ref_id_to_content.setdefault(ref_id, []).append(content)
-
-                # Add content to references
-                enriched_references = []
-                for ref in references:
-                    ref_copy = ref.copy()
-                    ref_id = ref.get("reference_id", "")
-                    if ref_id in ref_id_to_content:
-                        # Keep content as a list of chunks (one file may have multiple chunks)
-                        ref_copy["content"] = ref_id_to_content[ref_id]
-                    enriched_references.append(ref_copy)
-                references = enriched_references
+                references = _enrich_references_with_chunk_content(references, data)
 
             # Return response with or without references based on request
             if request.include_references:
@@ -558,28 +737,14 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
         """
 
         async def _generate():
-            references = result.get("data", {}).get("references", [])
+            data = result.get("data", {})
+            references = data.get("references", [])
             llm_response = result.get("llm_response", {})
 
-            # Enrich references with chunk content if requested
+            # Enrich structured chunk evidence only when the caller explicitly
+            # opts into chunk content; the legacy content list remains intact.
             if include_references and include_chunk_content:
-                data = result.get("data", {})
-                chunks = data.get("chunks", [])
-                ref_id_to_content: dict[str, list[str]] = {}
-                for chunk in chunks:
-                    ref_id = chunk.get("reference_id", "")
-                    content = chunk.get("content", "")
-                    if ref_id and content:
-                        ref_id_to_content.setdefault(ref_id, []).append(content)
-
-                enriched_references = []
-                for ref in references:
-                    ref_copy = ref.copy()
-                    ref_id = ref.get("reference_id", "")
-                    if ref_id in ref_id_to_content:
-                        ref_copy["content"] = ref_id_to_content[ref_id]
-                    enriched_references.append(ref_copy)
-                references = enriched_references
+                references = _enrich_references_with_chunk_content(references, data)
 
             if llm_response.get("is_streaming"):
                 # Streaming: references first, then response chunks

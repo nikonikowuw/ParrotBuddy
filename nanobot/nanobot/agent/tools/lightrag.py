@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 from collections.abc import Callable
 from typing import Any, Literal
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import httpx
 from loguru import logger
@@ -85,6 +86,199 @@ def _gateway_file_url(server_name: str, rel_path: str) -> str:
     """Build a gateway-proxied LightRAG file URL for a server + rel path."""
     clean_rel_path = quote(rel_path.replace("\\", "/").lstrip("/"))
     return f"/api/lightrag/file/{quote(server_name, safe='')}/{clean_rel_path}"
+
+
+_REFERENCE_URL_QUERY_KEYS = frozenset(
+    {"access_token", "api_key", "apikey", "authorization", "token", "x_api_key"}
+)
+_MAX_REFERENCE_TEXT_CHARS = 8_000
+_MAX_REFERENCE_ITEMS = 100
+
+
+def _safe_document_path(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    path = value.strip().replace("\\", "/")
+    if not path or "\x00" in path or any(part == ".." for part in path.split("/")):
+        return None
+    return path
+
+
+def _safe_media_path(value: Any) -> str | None:
+    path = _safe_document_path(value)
+    if not path or path.startswith("/") or re.match(r"^[A-Za-z]:/", path):
+        return None
+    return path
+
+
+def _safe_external_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    for query in (parsed.query, parsed.fragment):
+        for key, _ in parse_qsl(query, keep_blank_values=True):
+            if key.lower().replace("-", "_") in _REFERENCE_URL_QUERY_KEYS:
+                return None
+    return value
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _bounded_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value[:_MAX_REFERENCE_TEXT_CHARS] if value else None
+
+
+def _normalize_reference(reference: Any, server_name: str) -> dict[str, Any] | None:
+    if not isinstance(reference, dict):
+        return None
+    file_path = _safe_document_path(reference.get("file_path") or reference.get("path"))
+    if not file_path:
+        return None
+    normalized: dict[str, Any] = {
+        "reference_id": str(reference.get("reference_id") or reference.get("id") or ""),
+        "file_path": file_path,
+        "server_name": server_name,
+    }
+    title = _bounded_text(reference.get("title") or reference.get("display_name"))
+    if title:
+        normalized["title"] = title
+    source_url = _safe_external_url(reference.get("source_url"))
+    if source_url:
+        normalized["source_url"] = source_url
+
+    hit_count = reference.get("hit_count")
+    if isinstance(hit_count, int) and not isinstance(hit_count, bool) and hit_count >= 1:
+        normalized["hit_count"] = hit_count
+    best_score = _finite_number(reference.get("best_score"))
+    if best_score is not None:
+        normalized["best_score"] = best_score
+    best_score_type = reference.get("best_score_type")
+    if isinstance(best_score_type, str) and best_score_type:
+        normalized["best_score_type"] = best_score_type[:64]
+
+    raw_chunks = reference.get("chunks")
+    if isinstance(raw_chunks, list):
+        chunks: list[dict[str, Any]] = []
+        for raw_chunk in raw_chunks[:_MAX_REFERENCE_ITEMS]:
+            if not isinstance(raw_chunk, dict):
+                continue
+            chunk_id = str(raw_chunk.get("chunk_id") or raw_chunk.get("id") or "")
+            if not chunk_id:
+                continue
+            chunk: dict[str, Any] = {"chunk_id": chunk_id}
+            content = _bounded_text(raw_chunk.get("content"))
+            if content is not None:
+                chunk["content"] = content
+            for key in ("score", "rerank_score", "vector_score", "distance"):
+                value = _finite_number(raw_chunk.get(key))
+                if value is not None:
+                    chunk[key] = value
+            score_type = raw_chunk.get("score_type")
+            if isinstance(score_type, str) and score_type:
+                chunk["score_type"] = score_type[:64]
+            rank = raw_chunk.get("retrieval_rank")
+            if isinstance(rank, int) and not isinstance(rank, bool) and rank >= 1:
+                chunk["retrieval_rank"] = rank
+            chunks.append(chunk)
+        if chunks:
+            normalized["chunks"] = chunks
+
+    raw_content = reference.get("content")
+    if isinstance(raw_content, list):
+        content = [item for item in (_bounded_text(value) for value in raw_content) if item]
+        if content:
+            normalized["content"] = content[:_MAX_REFERENCE_ITEMS]
+    elif (content := _bounded_text(raw_content)) is not None:
+        normalized["content"] = [content]
+
+    raw_media = reference.get("media")
+    if isinstance(raw_media, list):
+        media: list[dict[str, Any]] = []
+        seen_media: set[str] = set()
+        for raw_item in raw_media[:_MAX_REFERENCE_ITEMS]:
+            if not isinstance(raw_item, dict) or raw_item.get("type") != "image":
+                continue
+            path = _safe_media_path(raw_item.get("path"))
+            if not path or path in seen_media:
+                continue
+            seen_media.add(path)
+            item: dict[str, Any] = {"type": "image", "path": path}
+            for key in ("format", "name", "description"):
+                value = _bounded_text(raw_item.get(key))
+                if value:
+                    item[key] = value
+            media.append(item)
+        if media:
+            normalized["media"] = media
+    return normalized
+
+
+def _normalize_references(references: Any, server_name: str) -> list[dict[str, Any]]:
+    if not isinstance(references, list):
+        return []
+    return [
+        normalized
+        for reference in references[:_MAX_REFERENCE_ITEMS]
+        if (normalized := _normalize_reference(reference, server_name)) is not None
+    ]
+
+
+def _reference_evidence_summary(
+    references: list[dict[str, Any]],
+) -> dict[str, Any]:
+    scores: list[tuple[float, str]] = []
+    chunk_count = 0
+    for reference in references:
+        chunks = reference.get("chunks")
+        if isinstance(chunks, list):
+            chunk_count += len(chunks)
+        elif isinstance(reference.get("hit_count"), int):
+            chunk_count += max(reference["hit_count"], 0)
+        score = _finite_number(reference.get("best_score"))
+        score_type = reference.get("best_score_type")
+        if score is not None and isinstance(score_type, str) and score_type:
+            scores.append((score, score_type))
+    summary: dict[str, Any] = {
+        "has_evidence": bool(references),
+        "reference_count": len(references),
+        "chunk_count": chunk_count,
+    }
+    if scores:
+        best_score, score_type = max(scores, key=lambda item: item[0])
+        summary["best_score"] = best_score
+        summary["best_score_type"] = score_type
+    return summary
+
+
+def _attach_reference_evidence(
+    result: ToolResult,
+    references: list[dict[str, Any]],
+) -> ToolResult:
+    if references:
+        result.references = references
+    result.evidence_summary = _reference_evidence_summary(references)
+    return result
 
 
 def _config_loader_factory() -> Callable[[], LightRagToolConfig]:
@@ -294,75 +488,76 @@ class LightRagQueryTool(Tool):
         include_refs: bool,
         api_base: str = "",
         api_key: str | None = None,
+        references: list[dict[str, Any]] | None = None,
     ) -> str:
         response = str(data.get("response") or "").strip()
         lines = [f"## Knowledge Base: {server_name}"]
         if response:
             lines.append(response)
 
-        if include_refs and isinstance(data.get("references"), list):
-            for i, ref in enumerate(data.get("references"), 1):
-                if not isinstance(ref, dict):
-                    continue
-                path = str(ref.get("file_path") or ref.get("path") or "")
-                rid = _md_safe_text(str(ref.get("reference_id") or ref.get("id") or "").strip())
-                if path:
-                    display_name = str(ref.get("display_name") or "").strip()
-                    if not display_name:
-                        display_name = _reference_display_name(path)
-                    if api_base:
-                        file_url = _gateway_file_url(server_name, path)
-                        head = f"{i}. [{_md_safe_text(display_name)}]({file_url})" + (
-                            f" (id:{rid})" if rid else ""
-                        )
-                    else:
-                        head = f"{i}. {_md_safe_text(display_name)}" + (
-                            f" (id:{rid})" if rid else ""
-                        )
+        if references is None:
+            references = _normalize_references(
+                data.get("references") if include_refs else None,
+                server_name,
+            )
+        if include_refs:
+            for i, ref in enumerate(references, 1):
+                path = ref["file_path"]
+                rid = _md_safe_text(str(ref.get("reference_id") or "").strip())
+                display_name = str(ref.get("title") or "").strip() or _reference_display_name(path)
+                source_url = ref.get("source_url")
+                if source_url:
+                    citation_url = source_url
+                elif api_base:
+                    citation_url = _gateway_file_url(server_name, path)
                 else:
-                    head = f"{i}. {rid or ''}".strip()
+                    citation_url = ""
+                if citation_url:
+                    head = f"{i}. [{_md_safe_text(display_name)}]({citation_url})" + (
+                        f" (id:{rid})" if rid else ""
+                    )
+                else:
+                    head = f"{i}. {_md_safe_text(display_name)}" + (
+                        f" (id:{rid})" if rid else ""
+                    )
                 lines.append(head)
-                content = ref.get("content")
-                if isinstance(content, list) and content:
-                    lines.append("   " + "\n   ".join(_md_safe_text(str(c)) for c in content if c))
-                elif isinstance(content, str) and content:
-                    lines.append(f"   {_md_safe_text(content)}")
-                # Retrieved media context: expose the indexed VLM description
-                # and one unnumbered Markdown image line per media item.  The
-                # image lines stay indented and unnumbered so the WebUI's
-                # document-reference extractor only classifies the parent
-                # link (above) as a document reference.
-                media_list = ref.get("media")
-                if isinstance(media_list, list):
-                    for media_item in media_list:
-                        if not isinstance(media_item, dict):
-                            continue
-                        if str(media_item.get("type") or "") != "image":
-                            continue
-                        media_path = str(media_item.get("path") or "").strip()
-                        if not media_path:
-                            continue
-                        media_name = _md_safe_text(
-                            str(media_item.get("name") or "").strip()
+                content_values = ref.get("content")
+                if not isinstance(content_values, list):
+                    content_values = [
+                        chunk.get("content")
+                        for chunk in ref.get("chunks", [])
+                        if isinstance(chunk, dict) and chunk.get("content")
+                    ]
+                if content_values:
+                    lines.append(
+                        "   "
+                        + "\n   ".join(
+                            _md_safe_text(str(content))
+                            for content in content_values
+                            if content
                         )
-                        media_desc = _md_safe_text(
-                            str(media_item.get("description") or "").strip()
+                    )
+                # Media remains nested under the parent document. Its path is
+                # a relative locator, never a replacement for ``file_path``.
+                for media_item in ref.get("media", []):
+                    media_path = _safe_media_path(media_item.get("path"))
+                    if not media_path:
+                        continue
+                    media_name = _md_safe_text(str(media_item.get("name") or "").strip())
+                    media_desc = _md_safe_text(str(media_item.get("description") or "").strip())
+                    if media_name or media_desc:
+                        context = (
+                            f"{media_name}。{media_desc}"
+                            if media_name and media_desc
+                            else (media_name or media_desc)
                         )
-                        if media_name or media_desc:
-                            context = (
-                                f"{media_name}。{media_desc}"
-                                if media_name and media_desc
-                                else (media_name or media_desc)
-                            )
-                            lines.append(f"   Image context: {context}")
-                        if api_base:
-                            media_url = _gateway_file_url(server_name, media_path)
-                            label = media_name or _md_safe_text(media_path)
-                            lines.append(f"   ![{label}]({media_url})")
-                        else:
-                            # Without a gateway URL the media path is still
-                            # surfaced as plain metadata for the model.
-                            lines.append(f"   Image media: {_md_safe_text(media_path)}")
+                        lines.append(f"   Image context: {context}")
+                    if api_base:
+                        media_url = _gateway_file_url(server_name, media_path)
+                        label = media_name or _md_safe_text(media_path)
+                        lines.append(f"   ![{label}]({media_url})")
+                    else:
+                        lines.append(f"   Image media: {_md_safe_text(media_path)}")
         return "\n".join(lines).strip()
 
     async def _query_one(
@@ -426,15 +621,21 @@ class LightRagQueryTool(Tool):
                     return _server_error(server.name, f"non-JSON - {exc}")
                 if not isinstance(data, dict):
                     return _server_error(server.name, "unexpected payload")
-                return ToolResult(
+                references = _normalize_references(
+                    data.get("references") if inc_refs else None,
+                    server.name,
+                )
+                result = ToolResult(
                     self._format_server_section(
                         server.name,
                         data,
                         inc_refs,
                         api_base=server.api_base,
                         api_key=server.api_key,
+                        references=references,
                     )
                 )
+                return _attach_reference_evidence(result, references)
         except httpx.RequestError as exc:
             logger.warning("LightRAG query failed for {}: {}", server.name, exc)
             return _server_error(server.name, f"request failed - {exc}")
@@ -484,13 +685,21 @@ class LightRagQueryTool(Tool):
         )
 
         sections: list[ToolResult] = []
+        references: list[dict[str, Any]] = []
         for server, result in zip(targets, results):
             if isinstance(result, Exception):
-                sections.append(_server_error(server.name, f"unhandled internal exception - {result}"))
+                section = _server_error(
+                    server.name, f"unhandled internal exception - {result}"
+                )
             else:
-                sections.append(result)
+                section = result
+            sections.append(section)
+            section_references = getattr(section, "references", None)
+            if isinstance(section_references, list):
+                references.extend(section_references)
 
         merged = "\n\n".join(str(section) for section in sections).strip() or "(no response)"
         if all(section.is_error for section in sections):
             return ToolResult.error(merged)
-        return merged
+        result = ToolResult(merged)
+        return _attach_reference_evidence(result, references)

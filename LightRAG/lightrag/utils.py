@@ -12,6 +12,7 @@ import inspect
 import json
 import logging
 import logging.handlers
+import math
 import os
 import re
 import time
@@ -33,6 +34,7 @@ from typing import (
     Sequence,
     Collection,
 )
+from urllib.parse import parse_qsl, urlsplit
 import numpy as np
 from dotenv import load_dotenv
 
@@ -4445,12 +4447,15 @@ async def apply_rerank_if_enabled(
                 reranked_docs = []
                 for result in rerank_results:
                     index = result["index"]
-                    relevance_score = result["relevance_score"]
+                    relevance_score = _finite_reference_score(
+                        result["relevance_score"]
+                    )
 
                     # Get original document and add rerank score
                     if 0 <= index < len(retrieved_docs):
                         doc = retrieved_docs[index].copy()
-                        doc["rerank_score"] = relevance_score
+                        if relevance_score is not None:
+                            doc["rerank_score"] = relevance_score
                         reranked_docs.append(doc)
 
                 logger.info(
@@ -4943,6 +4948,165 @@ def create_prefixed_exception(original_exception: Exception, prefix: str) -> Exc
         )
 
 
+_REFERENCE_URL_QUERY_KEYS = frozenset(
+    {
+        "access_token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "token",
+        "x_api_key",
+    }
+)
+_MAX_REFERENCE_CHUNK_CONTENT_CHARS = 8_000
+
+
+def _finite_reference_score(value: Any) -> float | None:
+    """Return a JSON-safe finite score without treating booleans as numbers."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _reference_metadata_value(chunk: dict[str, Any], key: str) -> Any:
+    value = chunk.get(key)
+    if value is not None:
+        return value
+    metadata = chunk.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata.get(key)
+    return None
+
+
+def _normalize_reference_source_url(value: Any) -> str | None:
+    """Accept only credential-free absolute HTTP(S) source URLs."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    for query in (parsed.query, parsed.fragment):
+        for key, _ in parse_qsl(query, keep_blank_values=True):
+            if key.lower().replace("-", "_") in _REFERENCE_URL_QUERY_KEYS:
+                return None
+    return value
+
+
+def _safe_reference_media_path(value: Any) -> str | None:
+    """Keep media locators relative to the parsed artifact directory."""
+    if not isinstance(value, str):
+        return None
+    path = value.strip().replace("\\", "/")
+    if (
+        not path
+        or "\x00" in path
+        or path.startswith("/")
+        or re.match(r"^[A-Za-z]:/", path)
+    ):
+        return None
+    if any(part == ".." for part in path.split("/")):
+        return None
+    return path
+
+
+def _safe_reference_document_path(value: Any) -> str | None:
+    """Keep parent document identities free of traversal components."""
+    if not isinstance(value, str):
+        return None
+    path = value.strip()
+    if not path or "\x00" in path or any(part == ".." for part in re.split(r"[/\\\\]", path)):
+        return None
+    return path
+
+
+def _normalize_reference_media(media_item: Any) -> dict[str, Any] | None:
+    if not isinstance(media_item, dict) or media_item.get("type") != "image":
+        return None
+    path = _safe_reference_media_path(media_item.get("path"))
+    if not path:
+        return None
+    normalized: dict[str, Any] = {"type": "image", "path": path}
+    for key in ("format", "name", "description"):
+        value = media_item.get(key)
+        if isinstance(value, str) and value:
+            normalized[key] = value
+    return normalized
+
+
+def _normalize_reference_media_items(media_items: Any) -> list[dict[str, Any]]:
+    if not isinstance(media_items, list):
+        return []
+    normalized_items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for media_item in media_items:
+        normalized_media = _normalize_reference_media(media_item)
+        if not normalized_media:
+            continue
+        media_key = (normalized_media["type"], normalized_media["path"])
+        if media_key in seen:
+            continue
+        seen.add(media_key)
+        normalized_items.append(normalized_media)
+    return normalized_items
+
+
+def _reference_chunk_score_fields(chunk: dict[str, Any]) -> tuple[dict[str, Any], float | None, str | None]:
+    rerank_score = _finite_reference_score(chunk.get("rerank_score"))
+    vector_score = _finite_reference_score(
+        chunk.get("vector_score", chunk.get("similarity"))
+    )
+    distance = _finite_reference_score(chunk.get("distance"))
+    explicit_score = _finite_reference_score(chunk.get("score"))
+    score_type = chunk.get("score_type")
+    if not isinstance(score_type, str) or not score_type:
+        score_type = None
+
+    fields: dict[str, Any] = {}
+    if rerank_score is not None:
+        fields["rerank_score"] = rerank_score
+    if vector_score is not None:
+        fields["vector_score"] = vector_score
+    if distance is not None:
+        fields["distance"] = distance
+
+    if rerank_score is not None:
+        return fields | {"score": rerank_score, "score_type": "rerank"}, rerank_score, "rerank"
+    if vector_score is not None:
+        return fields | {"score": vector_score, "score_type": "vector"}, vector_score, "vector"
+    if explicit_score is not None:
+        return fields | {"score": explicit_score, "score_type": score_type or "retrieval"}, explicit_score, score_type or "retrieval"
+    return fields, None, None
+
+
+def _build_reference_chunk(
+    chunk: dict[str, Any], retrieval_rank: int, *, include_content: bool = False
+) -> tuple[dict[str, Any] | None, float | None, str | None]:
+    chunk_id = chunk.get("chunk_id") or chunk.get("id")
+    if not isinstance(chunk_id, str) or not chunk_id:
+        return None, None, None
+    score_fields, score, score_type = _reference_chunk_score_fields(chunk)
+    reference_chunk: dict[str, Any] = {
+        "chunk_id": chunk_id,
+        "retrieval_rank": retrieval_rank,
+        **score_fields,
+    }
+    if include_content and isinstance(chunk.get("content"), str):
+        reference_chunk["content"] = chunk["content"][:_MAX_REFERENCE_CHUNK_CONTENT_CHARS]
+    return reference_chunk, score, score_type
+
+
 def convert_to_user_format(
     entities_context: list[dict],
     relations_context: list[dict],
@@ -5032,13 +5196,26 @@ def convert_to_user_format(
 
     # Convert chunks format (chunks already contain complete data)
     formatted_chunks = []
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks:
         chunk_data = {
             "reference_id": chunk.get("reference_id", ""),
             "content": chunk.get("content", ""),
             "file_path": chunk.get("file_path", "unknown_source"),
             "chunk_id": chunk.get("chunk_id", ""),
         }
+        for key in (
+            "score",
+            "score_type",
+            "rerank_score",
+            "vector_score",
+            "distance",
+            "retrieval_rank",
+            "title",
+            "source_url",
+        ):
+            value = chunk.get(key)
+            if value is not None:
+                chunk_data[key] = value
         media = chunk.get("media")
         if media:
             chunk_data["media"] = media
@@ -5072,92 +5249,130 @@ def convert_to_user_format(
 
 def generate_reference_list_from_chunks(
     chunks: list[dict],
+    *,
+    include_chunk_content: bool = False,
 ) -> tuple[list[dict], list[dict]]:
-    """
-    Generate reference list from chunks, prioritizing by occurrence frequency.
+    """Aggregate retrieved chunks into parent-document evidence.
 
-    This function extracts file_paths from chunks, counts their occurrences,
-    sorts by frequency and first appearance order, creates reference_id mappings,
-    and builds a reference_list structure.
+    Reference IDs and ordering intentionally remain frequency-first with first
+    appearance as the tie-breaker. ``file_path`` is always the parent
+    document identity; media paths are only nested render locators. Scores
+    preserve their source: rerank scores win the compact ``score`` projection,
+    while vector scores are kept separately as ``vector_score``.
 
-    Args:
-        chunks: List of chunk dictionaries with file_path information
-
-    Returns:
-        tuple: (reference_list, updated_chunks_with_reference_ids)
-            - reference_list: List of dicts with reference_id and file_path
-            - updated_chunks_with_reference_ids: Original chunks with reference_id field added
+    Chunk content is opt-in because it can substantially increase response
+    size and may expose source text. Chunk IDs and score metadata remain
+    available without opting into content.
     """
     if not chunks:
         return [], []
 
-    # 1. Extract all valid file_paths and count their occurrences
-    file_path_counts = {}
-    for chunk in chunks:
-        file_path = chunk.get("file_path", "")
-        if file_path and file_path != "unknown_source":
-            file_path_counts[file_path] = file_path_counts.get(file_path, 0) + 1
+    file_path_counts: dict[str, int] = {}
+    first_indices: dict[str, int] = {}
+    for index, chunk in enumerate(chunks):
+        file_path = _safe_reference_document_path(chunk.get("file_path"))
+        if not file_path or file_path == "unknown_source":
+            continue
+        file_path_counts[file_path] = file_path_counts.get(file_path, 0) + 1
+        first_indices.setdefault(file_path, index)
 
-    # 2. Sort file paths by frequency (descending), then by first appearance order
-    # Create a list of (file_path, count, first_index) tuples
-    file_path_with_indices = []
-    seen_paths = set()
-    for i, chunk in enumerate(chunks):
-        file_path = chunk.get("file_path", "")
-        if file_path and file_path != "unknown_source" and file_path not in seen_paths:
-            file_path_with_indices.append((file_path, file_path_counts[file_path], i))
-            seen_paths.add(file_path)
+    sorted_file_paths = sorted(
+        file_path_counts,
+        key=lambda path: (-file_path_counts[path], first_indices[path]),
+    )
+    file_path_to_ref_id = {
+        file_path: str(index + 1) for index, file_path in enumerate(sorted_file_paths)
+    }
 
-    # Sort by count (descending), then by first appearance index (ascending)
-    sorted_file_paths = sorted(file_path_with_indices, key=lambda x: (-x[1], x[2]))
-    unique_file_paths = [item[0] for item in sorted_file_paths]
+    updated_chunks: list[dict] = []
+    chunks_by_file_path: dict[str, list[dict[str, Any]]] = {}
+    titles_by_file_path: dict[str, str] = {}
+    source_urls_by_file_path: dict[str, str] = {}
+    media_by_file_path: dict[str, list[dict[str, Any]]] = {}
+    seen_media: dict[str, set[tuple[str, str]]] = {}
 
-    # 3. Create mapping from file_path to reference_id (prioritized by frequency)
-    file_path_to_ref_id = {}
-    for i, file_path in enumerate(unique_file_paths):
-        file_path_to_ref_id[file_path] = str(i + 1)
-
-    # 4. Add reference_id field to each chunk
-    updated_chunks = []
-    for chunk in chunks:
+    for retrieval_rank, chunk in enumerate(chunks, start=1):
         chunk_copy = chunk.copy()
-        file_path = chunk_copy.get("file_path", "")
-        if file_path and file_path != "unknown_source":
-            chunk_copy["reference_id"] = file_path_to_ref_id[file_path]
+        normalized_media_items = _normalize_reference_media_items(chunk_copy.get("media"))
+        if normalized_media_items:
+            chunk_copy["media"] = normalized_media_items
         else:
+            chunk_copy.pop("media", None)
+
+        file_path = _safe_reference_document_path(chunk_copy.get("file_path"))
+        if file_path and file_path in file_path_to_ref_id:
+            chunk_copy["file_path"] = file_path
+            chunk_copy["reference_id"] = file_path_to_ref_id[file_path]
+            chunks_by_file_path.setdefault(file_path, []).append(chunk_copy)
+
+            title = _reference_metadata_value(chunk_copy, "title")
+            if not title:
+                title = _reference_metadata_value(chunk_copy, "document_title")
+            if not title:
+                title = _reference_metadata_value(chunk_copy, "doc_title")
+            if not title:
+                title = _reference_metadata_value(chunk_copy, "display_name")
+            if isinstance(title, str) and title.strip() and file_path not in titles_by_file_path:
+                titles_by_file_path[file_path] = title.strip()
+
+            source_url = _normalize_reference_source_url(
+                _reference_metadata_value(chunk_copy, "source_url")
+            )
+            if source_url and file_path not in source_urls_by_file_path:
+                source_urls_by_file_path[file_path] = source_url
+
+            for normalized_media in normalized_media_items:
+                media_key = (
+                    normalized_media["type"],
+                    normalized_media["path"],
+                )
+                if media_key in seen_media.setdefault(file_path, set()):
+                    continue
+                seen_media[file_path].add(media_key)
+                media_by_file_path.setdefault(file_path, []).append(normalized_media)
+        else:
+            chunk_copy["file_path"] = "unknown_source"
             chunk_copy["reference_id"] = ""
         updated_chunks.append(chunk_copy)
 
-    # 5. Build reference_list, aggregating and deduplicating media from the
-    # chunks grouped under each parent file_path.  Duplicates are removed by
-    # a stable (type, path) key while retaining the first occurrence, so a
-    # parent document can carry multiple distinct retrieved images without
-    # repeating them when several chunks share the same media item.
-    media_by_file_path: dict[str, list[dict[str, Any]]] = {}
-    seen_media: dict[str, set[tuple[str, str]]] = {}
-    for chunk in chunks:
-        file_path = chunk.get("file_path")
-        for media_item in chunk.get("media") or []:
-            if not isinstance(media_item, dict):
-                continue
-            media_key = (
-                str(media_item.get("type") or ""),
-                str(media_item.get("path") or ""),
-            )
-            if not media_key[1]:
-                continue
-            seen = seen_media.setdefault(file_path, set())
-            if media_key in seen:
-                continue
-            seen.add(media_key)
-            media_by_file_path.setdefault(file_path, []).append(media_item)
-
-    reference_list = []
-    for i, file_path in enumerate(unique_file_paths):
+    reference_list: list[dict[str, Any]] = []
+    for file_path in sorted_file_paths:
+        reference_id = file_path_to_ref_id[file_path]
         ref_entry: dict[str, Any] = {
-            "reference_id": str(i + 1),
+            "reference_id": reference_id,
             "file_path": file_path,
+            "hit_count": file_path_counts[file_path],
         }
+        title = titles_by_file_path.get(file_path)
+        if title:
+            ref_entry["title"] = title
+        source_url = source_urls_by_file_path.get(file_path)
+        if source_url:
+            ref_entry["source_url"] = source_url
+
+        reference_chunks: list[dict[str, Any]] = []
+        score_groups: dict[str, list[float]] = {}
+        for retrieval_rank, chunk in enumerate(
+            chunks_by_file_path.get(file_path, []), start=1
+        ):
+            reference_chunk, score, score_type = _build_reference_chunk(
+                chunk, retrieval_rank, include_content=include_chunk_content
+            )
+            if reference_chunk:
+                reference_chunks.append(reference_chunk)
+            if score is not None and score_type:
+                score_groups.setdefault(score_type, []).append(score)
+
+        score_type = "rerank" if score_groups.get("rerank") else (
+            "vector" if score_groups.get("vector") else next(iter(score_groups), None)
+        )
+        if score_type:
+            ref_entry["best_score"] = max(score_groups[score_type])
+            ref_entry["best_score_type"] = score_type
+
+        if reference_chunks:
+            ref_entry["chunks"] = reference_chunks
+
         media_list = media_by_file_path.get(file_path)
         if media_list:
             ref_entry["media"] = media_list

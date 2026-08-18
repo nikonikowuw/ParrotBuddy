@@ -375,6 +375,18 @@ class TestReferenceMediaSchema:
         schema = ok_resp["content"]["application/json"]["schema"]
         ref_items = schema["properties"]["references"]["items"]["properties"]
         assert "media" in ref_items, "/query ReferenceItem must declare media"
+        assert {
+            "title",
+            "source_url",
+            "hit_count",
+            "best_score",
+            "best_score_type",
+            "chunks",
+        }.issubset(ref_items)
+        chunk_props = ref_items["chunks"]["items"]["properties"]
+        assert {"chunk_id", "score", "score_type", "rerank_score", "vector_score"}.issubset(
+            chunk_props
+        )
 
         media_schema = ref_items["media"]["items"]
         media_props = media_schema["properties"]
@@ -436,4 +448,19 @@ class TestReferenceMediaSchema:
         assert dumped["references"][0]["file_path"] == "demo.pdf"
         assert dumped["references"][0]["media"][0]["description"] == (
             "图中展示了系统模块之间的调用关系。"
+        )
+
+
+def test_reference_models_reject_unsafe_paths_and_source_urls():
+    from lightrag.api.routers.query_routes import ReferenceItem, ReferenceMedia
+
+    with pytest.raises(ValueError):
+        ReferenceMedia(type="image", path="../secret.png")
+    with pytest.raises(ValueError):
+        ReferenceItem(reference_id="1", file_path="docs/../secret.pdf")
+    with pytest.raises(ValueError):
+        ReferenceItem(
+            reference_id="1",
+            file_path="docs/report.pdf",
+            source_url="https://example.com/report.pdf?api_key=secret",
         )

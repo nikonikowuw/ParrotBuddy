@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractDocumentReferencesFromMessages,
   extractDocumentReferencesFromText,
+  extractRagEvidenceFromMessages,
   fileReferenceFromUrl,
 } from "@/lib/document-references";
 import type { UIMessage } from "@/lib/types";
@@ -183,4 +184,109 @@ describe("document-references", () => {
     const refs = extractDocumentReferencesFromText(text);
     expect(refs).toHaveLength(1);
     expect(refs[0].name).toBe("demo.pdf");
+  });
+
+  it("prefers structured RAG evidence over Markdown fallback", () => {
+    const activityMessages: UIMessage[] = [
+      {
+        id: "structured",
+        role: "tool",
+        kind: "trace",
+        content: "legacy text with no trusted citation",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            result: "1. [wrong.pdf](/api/lightrag/file/proj/wrong.pdf)",
+            references: [
+              {
+                reference_id: "1",
+                server_name: "proj",
+                file_path: "demo.pdf",
+                title: "Demo guide",
+                source_url: "https://example.com/docs/demo.pdf",
+                media: [{ type: "image", path: "demo.blocks.assets/figure.png", name: "Figure" }],
+              },
+            ],
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    const evidence = extractRagEvidenceFromMessages(activityMessages);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0].name).toBe("Demo guide");
+    expect(evidence[0].href).toBe("https://example.com/docs/demo.pdf");
+    expect(evidence[0].media[0].href).toBe("/api/lightrag/file/proj/demo.blocks.assets/figure.png");
+
+    const refs = extractDocumentReferencesFromMessages(activityMessages);
+    expect(refs).toEqual([
+      {
+        name: "Demo guide",
+        fullPath: "demo.pdf",
+        href: "https://example.com/docs/demo.pdf",
+      },
+    ]);
+  });
+
+  it("does not merge reused reference ids across parent documents", () => {
+    const activityMessages: UIMessage[] = [
+      {
+        id: "reused-reference-id",
+        role: "tool",
+        kind: "trace",
+        content: "",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            references: [
+              { reference_id: "1", server_name: "proj", file_path: "first.pdf" },
+              { reference_id: "1", server_name: "proj", file_path: "second.pdf" },
+            ],
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    expect(extractRagEvidenceFromMessages(activityMessages).map((item) => item.fullPath)).toEqual([
+      "first.pdf",
+      "second.pdf",
+    ]);
+  });
+
+  it("drops unsafe structured URLs and media paths", () => {
+    const activityMessages: UIMessage[] = [
+      {
+        id: "unsafe-structured",
+        role: "tool",
+        kind: "trace",
+        content: "",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            references: [
+              {
+                reference_id: "1",
+                server_name: "proj",
+                file_path: "demo.pdf",
+                source_url: "javascript:alert(1)",
+                media: [
+                  { type: "image", path: "../secret.png" },
+                  { type: "image", path: "/absolute.png" },
+                ],
+              },
+            ],
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    const evidence = extractRagEvidenceFromMessages(activityMessages);
+    expect(evidence[0].href).toBe("/api/lightrag/file/proj/demo.pdf");
+    expect(evidence[0].media).toEqual([]);
   });

@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tests.tools.test_rebuild_vdb import MockVDB
 
 from lightrag.utils import EmbeddingFunc, Tokenizer, TokenizerInterface
 
@@ -198,8 +199,6 @@ _JSON_MODE_RESPONSE = json.dumps(
     }
 )
 
-
-from tests.tools.test_rebuild_vdb import MockVDB
 
 class _DummyTextChunksStorage(MockVDB):
     def __init__(self):

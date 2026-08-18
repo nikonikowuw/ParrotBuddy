@@ -37,6 +37,7 @@ from lightrag.utils import (
     remove_think_tags,
     pick_by_weighted_polling,
     pick_by_vector_similarity,
+    _finite_reference_score,
     process_chunks_unified,
     safe_vdb_operation_with_exception,
     create_prefixed_exception,
@@ -4552,6 +4553,23 @@ async def _get_vector_context(
                     "source_type": "vector",  # Mark the source type
                     "chunk_id": result.get("id"),  # Add chunk_id for deduplication
                 }
+                vector_score = _finite_reference_score(
+                    result.get("vector_score", result.get("similarity"))
+                )
+                distance = _finite_reference_score(result.get("distance"))
+                if vector_score is not None:
+                    chunk_with_metadata["vector_score"] = vector_score
+                if distance is not None:
+                    chunk_with_metadata["distance"] = distance
+                for key in (
+                    "title",
+                    "document_title",
+                    "display_name",
+                    "source_url",
+                    "metadata",
+                ):
+                    if result.get(key) is not None:
+                        chunk_with_metadata[key] = result[key]
                 valid_chunks.append(chunk_with_metadata)
 
         logger.info(
@@ -5086,18 +5104,43 @@ async def _attach_content_headings(
 
 
 def _merge_chunk_record(chunk: dict, chunk_id: str) -> dict:
-    """Build the merged record for a retrieved chunk, preserving additive media.
+    """Build a merged chunk while preserving evidence metadata.
 
-    ``content`` / ``file_path`` / ``chunk_id`` are always present (matching the
-    contract the vector branch produced before); ``media`` is copied through
-    when the source chunk carries a non-empty list so multimodal chunks keep
-    their retrieved images through to reference aggregation.
+    ``file_path`` is the parent document identity. Scores retain their source
+    (`rerank_score` versus `vector_score`) and media remains nested metadata.
     """
     record = {
         "content": chunk["content"],
         "file_path": chunk.get("file_path", "unknown_source"),
         "chunk_id": chunk_id,
     }
+    score_keys = {
+        "score",
+        "rerank_score",
+        "vector_score",
+        "distance",
+    }
+    for key in (
+        "title",
+        "document_title",
+        "display_name",
+        "source_url",
+        "metadata",
+        "score",
+        "score_type",
+        "rerank_score",
+        "vector_score",
+        "distance",
+        "retrieval_rank",
+    ):
+        value = chunk.get(key)
+        if value is None:
+            continue
+        if key in score_keys:
+            value = _finite_reference_score(value)
+            if value is None:
+                continue
+        record[key] = value
     media = chunk.get("media")
     if isinstance(media, list) and media:
         record["media"] = media

@@ -200,6 +200,47 @@ export interface GoalStateWsPayload {
   objective?: string;
 }
 
+export interface RAGReferenceChunk {
+  chunk_id: string;
+  content?: string;
+  score?: number;
+  score_type?: string;
+  rerank_score?: number;
+  vector_score?: number;
+  distance?: number;
+  retrieval_rank?: number;
+}
+
+export interface RAGReferenceMedia {
+  type?: "image" | string;
+  path: string;
+  format?: string;
+  name?: string;
+  description?: string;
+}
+
+export interface RAGReference {
+  reference_id?: string;
+  file_path: string;
+  title?: string;
+  source_url?: string;
+  hit_count?: number;
+  best_score?: number;
+  best_score_type?: string;
+  chunks?: RAGReferenceChunk[];
+  content?: string[];
+  media?: RAGReferenceMedia[];
+  server_name?: string;
+}
+
+export interface RAGEvidenceSummary {
+  has_evidence: boolean;
+  reference_count: number;
+  chunk_count: number;
+  best_score?: number;
+  best_score_type?: string;
+}
+
 export interface ToolProgressEvent {
   version?: number;
   phase?: "start" | "end" | "error" | string;
@@ -210,6 +251,8 @@ export interface ToolProgressEvent {
   error?: unknown;
   files?: unknown[];
   embeds?: unknown[];
+  references?: RAGReference[];
+  evidence?: RAGEvidenceSummary;
 }
 
 export interface UIFileDiff {

@@ -599,4 +599,88 @@ describe("MessageBubble", () => {
     }
     expect(onOpenFilePreview).toHaveBeenCalledWith("1810.04805v2.pdf");
   });
+
+  it("renders only parent documents in structured RAG sources", () => {
+    const message: UIMessage = {
+      id: "a-structured-ref",
+      role: "assistant",
+      content: "Answer",
+      createdAt: Date.now(),
+    };
+    const activityMessages: UIMessage[] = [
+      {
+        id: "trace-structured-ref",
+        role: "tool",
+        kind: "trace",
+        content: "legacy citation text",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            references: [
+              {
+                reference_id: "1",
+                server_name: "proj",
+                file_path: "demo.pdf",
+                title: "Demo guide",
+                hit_count: 20,
+                best_score: 0.91,
+                best_score_type: "vector",
+                media: [{ type: "image", path: "demo.blocks.assets/figure.png", name: "Figure" }],
+              },
+            ],
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    const { container } = render(
+      <MessageBubble message={message} activityMessages={activityMessages} />,
+    );
+
+    expect(screen.getByTestId("rag-source-panel")).toHaveTextContent("Demo guide");
+    expect(screen.getByTestId("rag-source-panel")).not.toHaveTextContent("legacy citation text");
+    expect(container.querySelector('a[href="/api/lightrag/file/proj/demo.pdf"]')).toBeInTheDocument();
+    expect(screen.getByTestId("rag-source-panel")).not.toHaveTextContent("20 hits");
+    expect(screen.getByTestId("rag-source-panel")).not.toHaveTextContent("Figure");
+    expect(container.querySelector('img[src="/api/lightrag/file/proj/demo.blocks.assets/figure.png"]')).not.toBeInTheDocument();
+  });
+
+  it("waits to render structured sources until the assistant finishes streaming", () => {
+    const message: UIMessage = {
+      id: "a-streaming-ref",
+      role: "assistant",
+      content: "Answer in progress",
+      isStreaming: true,
+      createdAt: Date.now(),
+    };
+    const activityMessages: UIMessage[] = [
+      {
+        id: "trace-streaming-ref",
+        role: "tool",
+        kind: "trace",
+        content: "",
+        toolEvents: [
+          {
+            name: "lightrag_query",
+            phase: "end",
+            references: [
+              {
+                reference_id: "1",
+                server_name: "proj",
+                file_path: "demo.pdf",
+              },
+            ],
+          },
+        ],
+        createdAt: Date.now(),
+      },
+    ];
+
+    render(<MessageBubble message={message} activityMessages={activityMessages} />);
+
+    expect(screen.queryByTestId("rag-source-panel")).not.toBeInTheDocument();
+    expect(screen.queryByText("demo.pdf")).not.toBeInTheDocument();
+  });
 });

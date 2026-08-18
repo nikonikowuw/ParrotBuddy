@@ -10,7 +10,9 @@ while exposing retrieved images as nested ``media`` objects:
 """
 
 import asyncio
+import json
 
+import numpy as np
 import pytest
 
 from lightrag.utils import convert_to_user_format, generate_reference_list_from_chunks
@@ -105,6 +107,32 @@ def test_convert_to_user_format_carries_chunk_media():
     assert formatted[0]["media"][0]["path"] == "demo.blocks.assets/image.png"
     # Chunks without media keep working with no media key.
     assert "media" not in formatted[1]
+
+
+def test_vector_scores_are_python_floats_before_json_token_truncation():
+    """Vector backend NumPy scalars must not abort query context building."""
+    from lightrag.base import QueryParam
+    from lightrag.operate import _get_vector_context
+
+    class _ChunksVDB:
+        cosine_better_than_threshold = 0.2
+
+        async def query(self, query, top_k, query_embedding=None):
+            return [
+                {
+                    "id": "chunk-1",
+                    "content": "match",
+                    "file_path": "demo.pdf",
+                    "vector_score": np.float32(0.91),
+                    "distance": np.float32(0.91),
+                }
+            ]
+
+    chunks = asyncio.run(_get_vector_context("q", _ChunksVDB(), QueryParam(top_k=5)))
+
+    assert type(chunks[0]["vector_score"]) is float
+    assert type(chunks[0]["distance"]) is float
+    json.dumps(chunks)
 
 
 def test_get_vector_context_hydrates_media_from_text_chunks():
@@ -296,3 +324,120 @@ def test_ensure_flag_marks_fresh_workspace_media_free():
     operate._workspace_has_media["media-ws"] = True
     asyncio.run(ensure_workspace_has_media_flag("media-ws", _EmptyChunks()))
     assert operate._workspace_has_media.get("media-ws") is True
+
+
+def test_reference_aggregation_exposes_structured_chunk_evidence():
+    chunks = [
+        {
+            "file_path": "demo.pdf",
+            "title": "Demo guide",
+            "source_url": "https://example.com/docs/demo.pdf",
+            "chunk_id": "chunk-1",
+            "content": "first match",
+            "rerank_score": 0.86,
+            "vector_score": 0.73,
+        },
+        {
+            "file_path": "demo.pdf",
+            "chunk_id": "chunk-2",
+            "content": "second match",
+            "rerank_score": 0.81,
+        },
+    ]
+
+    references, updated = generate_reference_list_from_chunks(chunks)
+
+    ref = references[0]
+    assert ref["file_path"] == "demo.pdf"
+    assert ref["title"] == "Demo guide"
+    assert ref["source_url"] == "https://example.com/docs/demo.pdf"
+    assert ref["hit_count"] == 2
+    assert ref["best_score"] == pytest.approx(0.86)
+    assert ref["best_score_type"] == "rerank"
+    assert [chunk["chunk_id"] for chunk in ref["chunks"]] == ["chunk-1", "chunk-2"]
+    assert ref["chunks"][0]["score"] == pytest.approx(0.86)
+    assert ref["chunks"][0]["score_type"] == "rerank"
+    assert "content" not in ref["chunks"][0]
+    assert all(chunk["reference_id"] == "1" for chunk in updated)
+
+    with_content, _ = generate_reference_list_from_chunks(
+        chunks, include_chunk_content=True
+    )
+    assert [chunk["content"] for chunk in with_content[0]["chunks"]] == [
+        "first match",
+        "second match",
+    ]
+
+    oversized = [{
+        "file_path": "demo.pdf",
+        "chunk_id": "chunk-long",
+        "content": "x" * 9_000,
+    }]
+    bounded, _ = generate_reference_list_from_chunks(
+        oversized, include_chunk_content=True
+    )
+    assert len(bounded[0]["chunks"][0]["content"]) == 8_000
+
+
+def test_reference_aggregation_keeps_distance_separate_from_similarity():
+    chunks = [
+        {
+            "file_path": "demo.pdf",
+            "chunk_id": "chunk-1",
+            "content": "match",
+            "distance": 0.14,
+        }
+    ]
+
+    references, _ = generate_reference_list_from_chunks(chunks)
+
+    chunk = references[0]["chunks"][0]
+    assert chunk["distance"] == pytest.approx(0.14)
+    assert "vector_score" not in chunk
+    assert "score" not in chunk
+    assert "best_score" not in references[0]
+
+
+
+
+def test_reference_aggregation_discards_unsafe_media_from_chunks():
+    chunks = [
+        {
+            "file_path": "demo.pdf",
+            "chunk_id": "chunk-1",
+            "media": [
+                _media("../secret.png"),
+                _media("/absolute.png"),
+                {"type": "video", "path": "video.mp4"},
+            ],
+        }
+    ]
+
+    references, updated = generate_reference_list_from_chunks(chunks)
+
+    assert "media" not in references[0]
+    assert "media" not in updated[0]
+
+
+def test_reference_aggregation_discards_unsafe_source_urls():
+    chunks = [
+        {
+            "file_path": "demo.pdf",
+            "chunk_id": "chunk-1",
+            "source_url": "javascript:alert(1)",
+        },
+        {
+            "file_path": "fragment.pdf",
+            "chunk_id": "chunk-3",
+            "source_url": "https://example.com/docs.pdf#access_token=secret",
+        },
+        {
+            "file_path": "other.pdf",
+            "chunk_id": "chunk-2",
+            "source_url": "https://example.com/docs.pdf?api_key=secret",
+        },
+    ]
+
+    references, _ = generate_reference_list_from_chunks(chunks)
+
+    assert all("source_url" not in reference for reference in references)

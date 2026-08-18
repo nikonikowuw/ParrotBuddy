@@ -13,6 +13,7 @@ from nanobot.agent.tools.lightrag import (
 )
 from nanobot.agent.tools.registry import is_tool_error_result
 from nanobot.config.schema import ToolsConfig
+from nanobot.utils.progress_events import build_tool_event_finish_payloads
 
 
 def _server(name: str = "proj1", **overrides: object) -> LightRagServerConfig:
@@ -897,3 +898,104 @@ def test_format_server_section_encodes_slash_in_server_name():
     assert "/api/lightrag/file/proj%2Fsub/demo.pdf" in text
     assert "/api/lightrag/file/proj%2Fsub/img.png" in text
     assert "/api/lightrag/file/proj/sub/" not in text
+
+
+@pytest.mark.asyncio
+async def test_structured_references_survive_tool_result_and_finish_event(monkeypatch):
+    async def mock_post(self, url, **kw):
+        return _response(
+            json={
+                "response": "answer",
+                "references": [
+                    {
+                        "reference_id": "1",
+                        "file_path": "demo.pdf",
+                        "title": "Demo guide",
+                        "source_url": "https://example.com/docs/demo.pdf",
+                        "hit_count": 2,
+                        "best_score": 0.86,
+                        "best_score_type": "rerank",
+                        "chunks": [
+                            {
+                                "chunk_id": "chunk-1",
+                                "score": 0.86,
+                                "score_type": "rerank",
+                            }
+                        ],
+                        "media": [
+                            {"type": "image", "path": "demo.blocks.assets/figure.png"}
+                        ],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
+
+    result = await tool.execute(query="q?")
+
+    assert "[Demo guide](https://example.com/docs/demo.pdf)" in result
+    assert result.references[0]["file_path"] == "demo.pdf"
+    assert result.references[0]["server_name"] == "proj"
+    assert result.references[0]["media"][0]["path"] == "demo.blocks.assets/figure.png"
+
+    payloads = build_tool_event_finish_payloads(
+        SimpleNamespace(
+            tool_calls=[SimpleNamespace(id="call-1", name="lightrag_query", arguments={})],
+            tool_results=[result],
+            tool_events=[{"status": "ok"}],
+        )
+    )
+    assert payloads[0]["references"] == result.references
+    assert payloads[0]["evidence"] == {
+        "has_evidence": True,
+        "reference_count": 1,
+        "chunk_count": 1,
+        "best_score": 0.86,
+        "best_score_type": "rerank",
+    }
+
+
+@pytest.mark.asyncio
+async def test_empty_references_expose_negative_evidence_summary(monkeypatch):
+    async def mock_post(self, url, **kw):
+        return _response(json={"response": "No relevant context found.", "references": []})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
+
+    result = await tool.execute(query="q?")
+
+    assert not hasattr(result, "references")
+    assert result.evidence_summary == {
+        "has_evidence": False,
+        "reference_count": 0,
+        "chunk_count": 0,
+    }
+    async def mock_post(self, url, **kw):
+        return _response(
+            json={
+                "response": "answer",
+                "references": [
+                    {
+                        "reference_id": "1",
+                        "file_path": "demo.pdf",
+                        "source_url": "javascript:alert(1)",
+                        "media": [
+                            {"type": "image", "path": "../secret.png"},
+                            {"type": "image", "path": "/absolute.png"},
+                        ],
+                    }
+                ],
+            }
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    tool = _tool(servers=[_server("proj")], default_workspace="proj")
+    result = await tool.execute(query="q?")
+
+    assert "javascript:" not in result
+    assert "secret.png" not in result
+    assert "absolute.png" not in result
+    assert "(/api/lightrag/file/proj/demo.pdf)" in result
