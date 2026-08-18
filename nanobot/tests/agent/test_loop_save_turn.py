@@ -681,10 +681,9 @@ async def test_process_message_persists_user_message_before_turn_completes(tmp_p
     assert persisted.updated_at >= persisted.created_at
 
 
-# 1x1 PNG used by the media-persistence tests. ``extract_documents`` runs
-# at the top of ``_process_message`` and filters ``msg.media`` down to
-# paths that magic-byte-sniff as images, so the test fixture needs real
-# bytes on disk (not just placeholder paths).
+# 1x1 PNG used by the media-persistence tests. ``_state_restore`` keeps
+# image paths for direct vision input, while non-image attachments are
+# referenced for the Agent's ``read_file`` tool.
 _PNG_1X1 = (
     b"\x89PNG\r\n\x1a\n"
     b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"

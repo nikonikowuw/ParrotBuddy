@@ -467,14 +467,14 @@ def test_extract_documents_does_not_read_full_file_for_mime(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DOCX upload test — API saves file, loop layer extracts text
+# DOCX upload test — API saves file and forwards the attachment path
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_docx_upload_passes_media_path(aiohttp_client, tmp_path) -> None:
-    """Uploaded DOCX is saved to disk and its path passed as media.
-    (Text extraction happens later in AgentLoop._process_message.)"""
+    """Uploaded DOCX is saved to disk and its path passed as an attachment.
+    The Agent's read_file tool extracts text only when the model requests it."""
     agent = _make_mock_agent("report summary")
     import os
     original_cwd = os.getcwd()

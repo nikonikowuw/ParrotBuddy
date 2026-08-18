@@ -947,6 +947,7 @@
         "drag": "Arrastrar para reordenar"
       },
       "attachImage": "Adjuntar imagen",
+      "attachFile": "Adjuntar archivo",
       "imageMode": {
         "label": "Generar imagen",
         "toggle": "Activar o desactivar modo de generación de imágenes",
@@ -1064,9 +1065,12 @@
       "imageRejected": {
         "unsupported_type": "Tipo de archivo no compatible",
         "too_many_images": "Máximo {{max}} imágenes por mensaje",
+        "too_many_files": "Máximo {{max}} archivos adjuntos por mensaje",
+        "too_many_documents": "Máximo {{max}} documentos por mensaje",
         "magic_mismatch": "El archivo no parece una imagen real",
         "decode_failed": "No se pudo decodificar esta imagen",
         "too_large": "Imagen demasiado grande — prueba una más pequeña",
+        "file_too_large": "Archivo demasiado grande — usa uno de menos de 6 MB",
         "io": "No se pudo leer este archivo"
       },
       "mentions": {

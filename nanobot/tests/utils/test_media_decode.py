@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,19 @@ def test_saves_png_with_correct_extension(tmp_path) -> None:
     assert result is not None
     assert result.endswith(".png")
     assert (tmp_path / result.split("/")[-1]).read_bytes() == b"fake png"
+
+
+def test_named_upload_preserves_safe_filename_and_parser_suffix(tmp_path) -> None:
+    result = save_base64_data_url(
+        _data_url(b"pdf", mime="application/pdf"),
+        tmp_path,
+        filename="report.pdf",
+    )
+    assert result is not None
+    saved = Path(result)
+    assert saved.name == "report.pdf"
+    assert saved.parent != tmp_path
+    assert saved.read_bytes() == b"pdf"
 
 
 def test_saves_data_url_with_mime_parameters(tmp_path) -> None:

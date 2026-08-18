@@ -947,6 +947,7 @@
         "drag": "Seret untuk mengurutkan"
       },
       "attachImage": "Lampirkan gambar",
+      "attachFile": "Lampirkan file",
       "imageMode": {
         "label": "Buat gambar",
         "toggle": "Alihkan mode pembuatan gambar",
@@ -1064,9 +1065,12 @@
       "imageRejected": {
         "unsupported_type": "Tipe file tidak didukung",
         "too_many_images": "Maksimal {{max}} gambar per pesan",
+        "too_many_files": "Maksimal {{max}} lampiran per pesan",
+        "too_many_documents": "Maksimal {{max}} dokumen per pesan",
         "magic_mismatch": "File ini tampaknya bukan gambar asli",
         "decode_failed": "Tidak dapat mendekode gambar ini",
         "too_large": "Gambar terlalu besar — coba yang lebih kecil",
+        "file_too_large": "File terlalu besar — gunakan file di bawah 6 MB",
         "io": "Tidak dapat membaca file ini"
       },
       "mentions": {

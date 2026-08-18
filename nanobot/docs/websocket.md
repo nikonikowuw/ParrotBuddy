@@ -196,7 +196,7 @@ Recognized fields: `content`, `text`, `message` (checked in that order). Invalid
 |--------|--------|--------|
 | `new_chat` | — | Server mints a new `chat_id`, subscribes this connection, replies with `attached`. |
 | `attach` | `chat_id` | Subscribe to an existing `chat_id` (e.g. after a page reload). Replies with `attached`. |
-| `message` | `chat_id`, `content` | Send `content` on `chat_id`. First use auto-attaches; no explicit `attach` needed. |
+| `message` | `chat_id`, `content`, optional `media` | Send text and attachments on `chat_id`. `media` is a list of `{data_url, name?}` items. The WebUI accepts PNG/JPEG/WebP/GIF images and PDF/DOCX/XLSX/PPTX documents; images are sent as vision input and non-image attachments are exposed to the Agent's `read_file` tool for on-demand extraction. First use auto-attaches; no explicit `attach` needed. |
 
 See [Multi-chat multiplexing](#multi-chat-multiplexing) for the full flow.
 
@@ -212,7 +212,7 @@ All fields go under `channels.websocket` in `config.json`.
 | `host` | string | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` to accept external connections. |
 | `port` | int | `8765` | Listen port. |
 | `path` | string | `"/"` | WebSocket upgrade path. Trailing slashes are normalized (root `/` is preserved). |
-| `maxMessageBytes` | int | `37748736` | Maximum inbound message size in bytes (1 KB – 40 MB). Default (36 MB) is sized to accept up to 4 base64-encoded image attachments at 8 MB each; lower it if the channel only carries text. |
+| `maxMessageBytes` | int | `37748736` | Maximum inbound message size in bytes (1 KB – 40 MB). Default (36 MB) is sized for up to four client-normalized attachments at roughly 6 MB each after base64 overhead; lower it if the channel only carries text. |
 
 ### Authentication
 
@@ -357,6 +357,8 @@ Legacy clients that only send plain text or `{"content": ...}` keep working unch
 - **Default-secure**: `websocketRequiresToken` defaults to `true`. Explicitly set it to `false` only on trusted networks.
 
 ## Media Files
+
+The embedded WebUI sends attachments as base64 data URLs inside the typed `message` envelope. The server accepts PNG/JPEG/WebP/GIF images, MP4/WebM/MOV video, and PDF/DOCX/XLSX/PPTX documents. Documents are saved under nanobot's media directory and exposed to the Agent's `read_file` tool; text extraction happens only when that tool is called.
 
 Outbound `message` events may include a `media` field containing local filesystem paths. Remote clients cannot access these files directly — they need either:
 

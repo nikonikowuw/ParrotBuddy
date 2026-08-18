@@ -18,6 +18,7 @@ import type {
   GoalStateWsPayload,
   ToolProgressEvent,
   UIImage,
+  UIMediaAttachment,
   UIFileEdit,
   UIMessage,
   UITurnPhase,
@@ -506,15 +507,21 @@ function findFileEditTraceIndex(
  * separately (e.g. via ``fetchWebuiThread``) since the server only replays
  * live events.
  */
-/** Payload passed to ``send`` when the user attaches one or more images.
+/** Payload passed to ``send`` when the user attaches one or more files.
  *
  * ``media`` is handed to the wire client verbatim; ``preview`` powers the
- * optimistic user bubble (blob URLs so the preview appears before the server
- * acks the frame). Keeping the two separate lets the bubble re-use the local
- * blob URL even after the server persists the file under a different name. */
+ * optimistic user bubble. Images use the legacy ``UIImage`` shape while
+ * documents use the richer ``UIMediaAttachment`` file shape. */
 export interface SendImage {
   media: OutboundMedia;
-  preview: UIImage;
+  preview: UIImage | UIMediaAttachment;
+}
+
+function previewToMediaAttachment(
+  preview: UIImage | UIMediaAttachment,
+): UIMediaAttachment {
+  if ("kind" in preview) return preview;
+  return { kind: "image", url: preview.url, name: preview.name };
 }
 
 export interface SendOptions {
@@ -1200,10 +1207,10 @@ export function useNanobotStream(
   const send = useCallback(
     (content: string, images?: SendImage[], options?: SendOptions) => {
       if (!chatId) return;
-      const hasImages = !!images && images.length > 0;
-      // Text is optional when images are attached — the agent will still see
-      // the image blocks via ``media`` paths.
-      if (!hasImages && !content.trim()) return;
+      const hasAttachments = !!images && images.length > 0;
+      // Text is optional when attachments are present — the agent will see
+      // images as vision blocks and documents after server-side extraction.
+      if (!hasAttachments && !content.trim()) return;
 
       const sideChannel = options?.sideChannel === true;
       const finalizeActiveTurn = options?.finalizeActiveTurn === true;
@@ -1214,7 +1221,13 @@ export function useNanobotStream(
       }
       const turnId = crypto.randomUUID();
       if (sideChannel) sideChannelTurnIdsRef.current.add(turnId);
-      const previews = hasImages ? images!.map((i) => i.preview) : undefined;
+      const previews = hasAttachments
+        ? images!.map((image) => previewToMediaAttachment(image.preview))
+        : [];
+      const imagePreviews = previews
+        .filter((preview) => preview.kind === "image")
+        .map(({ url, name }) => ({ url, name }));
+      const filePreviews = previews.filter((preview) => preview.kind !== "image");
       setMessages((prev) => {
         if (!sideChannel || finalizeActiveTurn) {
           buffer.current = null;
@@ -1234,14 +1247,15 @@ export function useNanobotStream(
             turnPhase: "user",
             turnSeq: 0,
             createdAt: Date.now(),
-            ...(previews ? { images: previews } : {}),
+            ...(imagePreviews.length > 0 ? { images: imagePreviews } : {}),
+            ...(filePreviews.length > 0 ? { media: filePreviews } : {}),
             ...(options?.cliApps?.length ? { cliApps: options.cliApps } : {}),
             ...(options?.mcpPresets?.length ? { mcpPresets: options.mcpPresets } : {}),
           },
         ];
       });
       if (!sideChannel) setIsStreaming(true);
-      const wireMedia = hasImages ? images!.map((i) => i.media) : undefined;
+      const wireMedia = hasAttachments ? images!.map((i) => i.media) : undefined;
       const wireOptions = { ...options, turnId };
       delete wireOptions.sideChannel;
       delete wireOptions.finalizeActiveTurn;

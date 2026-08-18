@@ -151,7 +151,10 @@ export function MessageBubble({
     const images = message.images ?? [];
     const media = message.media ?? [];
     const hasImages = images.length > 0;
-    const hasMedia = media.length > 0;
+    const renderableMedia = hasImages
+      ? media.filter((item) => item.kind !== "image")
+      : media;
+    const hasMedia = renderableMedia.length > 0;
     const hasText = message.content.trim().length > 0;
     return (
       <div
@@ -161,8 +164,8 @@ export function MessageBubble({
         )}
       >
         {hasImages ? <UserImages images={images} align="right" /> : null}
-        {!hasImages && hasMedia ? (
-          <MessageMedia media={media} align="right" onOpenFilePreview={onOpenFilePreview} />
+        {hasMedia ? (
+          <MessageMedia media={renderableMedia} align="right" onOpenFilePreview={onOpenFilePreview} />
         ) : null}
         {hasText ? (
           <p

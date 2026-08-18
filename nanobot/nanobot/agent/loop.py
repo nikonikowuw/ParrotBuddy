@@ -80,7 +80,7 @@ from nanobot.session.manager import (
     replay_max_messages_for_context,
 )
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
-from nanobot.utils.document import extract_documents, reference_non_image_attachments
+from nanobot.utils.document import reference_non_image_attachments
 from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -1505,7 +1505,7 @@ class AgentLoop:
         )
 
     async def _state_restore(self, ctx: TurnContext) -> TurnState:
-        """Restore checkpoint / pending user turn; extract documents."""
+        """Restore checkpoint / pending user turn; prepare attachment references."""
         msg = ctx.msg
 
         if msg.media:
@@ -1531,14 +1531,8 @@ class AgentLoop:
         return "ok"
 
     def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
-        if self._should_extract_document_text():
-            return extract_documents(content, media)
+        # Keep uploaded documents available to the Agent's read_file tool.
         return reference_non_image_attachments(content, media)
-
-    def _should_extract_document_text(self) -> bool:
-        if self.channels_config is None:
-            return True
-        return self.channels_config.extract_document_text
 
     async def _state_compact(self, ctx: TurnContext) -> str:
         ctx.session, pending = self.auto_compact.prepare_session(ctx.session, ctx.session_key)

@@ -336,7 +336,7 @@ describe("ThreadComposer", () => {
     expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
     expect(input.parentElement?.parentElement?.className).toContain("rounded-[22px]");
     expect(input.parentElement?.parentElement?.className).toContain("shadow-[0_12px_30px_rgba(15,23,42,0.07)]");
-    expect(screen.getByRole("button", { name: "Attach image" }).className).toContain("bg-card");
+    expect(screen.getByRole("button", { name: "Attach file" }).className).toContain("bg-card");
     expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-foreground");
     expect(screen.queryByText(/Enter to send/)).not.toBeInTheDocument();
   });
@@ -1913,6 +1913,54 @@ describe("ThreadComposer", () => {
       expect(onSend).toHaveBeenLastCalledWith("first follow-up edited");
     });
     expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("flushes attachment-only guidance when the active turn finishes", async () => {
+    mockBlobUrls();
+    const onSend = vi.fn();
+    const { container, rerender } = render(
+      <ThreadComposer
+        onSend={onSend}
+        onStop={vi.fn()}
+        isStreaming
+        placeholder="Type your message..."
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    const file = new File(["pdf"], "report.pdf", { type: "application/pdf" });
+    fireEvent.change(fileInput!, { target: { files: [file] } });
+    await screen.findByText("report.pdf");
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Encoding…")).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("group", { name: "Queued guidance" })).toBeInTheDocument();
+
+    rerender(
+      <ThreadComposer
+        onSend={onSend}
+        onStop={vi.fn()}
+        isStreaming={false}
+        placeholder="Type your message..."
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith(
+        "",
+        [expect.objectContaining({
+          media: expect.objectContaining({
+            data_url: "data:application/pdf;base64,cGRm",
+            name: "report.pdf",
+          }),
+        })],
+      );
+    });
   });
 
   it("queues image guidance while running and restores it for editing", async () => {

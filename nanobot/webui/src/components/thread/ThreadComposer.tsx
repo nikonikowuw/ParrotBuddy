@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
+import { FileReferenceIcon, fileKindForPath } from "@/components/FileReferenceChip";
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
   CliAppMentionToken,
@@ -71,6 +72,7 @@ import {
   useAttachedImages,
   type AttachedImage,
   type AttachmentError,
+  attachmentKindForDataUrl,
   MAX_IMAGES_PER_MESSAGE,
   type RestoredReadyImage,
 } from "@/hooks/useAttachedImages";
@@ -97,9 +99,22 @@ import {
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
- * deliberately excluded to avoid an embedded-script XSS surface. */
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
+/** ``<input accept>``: aligned with the server's upload MIME whitelist.
+ * SVG is deliberately excluded to avoid an embedded-script XSS surface. */
+const ACCEPT_ATTR = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".pdf",
+  ".docx",
+  ".xlsx",
+  ".pptx",
+].join(",");
 const VOICE_SHORTCUT_CODE = "KeyD";
 const VOICE_SHORTCUT_ARIA = "Control+Shift+D";
 type VoiceShortcutPlatform = "apple" | "chromeos" | "linux" | "other" | "windows";
@@ -323,6 +338,7 @@ interface QueuedPrompt {
 interface QueuedPromptImage {
   dataUrl: string;
   name?: string;
+  kind?: "image" | "file";
 }
 
 interface CliAppMentionQuery {
@@ -389,11 +405,12 @@ function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | nul
     ? record.images.flatMap((image) => {
         if (!image || typeof image !== "object") return [];
         const candidate = image as Partial<QueuedPromptImage>;
-        if (typeof candidate.dataUrl !== "string" || !candidate.dataUrl.startsWith("data:image/")) {
-          return [];
-        }
+        if (typeof candidate.dataUrl !== "string") return [];
+        const kind = attachmentKindForDataUrl(candidate.dataUrl);
+        if (!kind) return [];
         return [{
           dataUrl: candidate.dataUrl,
+          kind,
           ...(typeof candidate.name === "string" && candidate.name.trim()
             ? { name: candidate.name.trim() }
             : {}),
@@ -450,6 +467,7 @@ function readyImagesToQueuedImages(
   return images.map((img) => ({
     dataUrl: img.dataUrl,
     name: img.file.name,
+    kind: img.kind,
   }));
 }
 
@@ -461,6 +479,7 @@ function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendImage[] | u
       ...(img.name ? { name: img.name } : {}),
     },
     preview: {
+      kind: img.kind ?? (attachmentKindForDataUrl(img.dataUrl) ?? "file"),
       url: img.dataUrl,
       ...(img.name ? { name: img.name } : {}),
     },
@@ -921,7 +940,7 @@ export function ThreadComposer({
     ? t("thread.composer.placeholderStreaming")
     : placeholder ?? t("thread.composer.placeholderThread");
 
-  const { images, enqueue, remove, clear, restoreReadyImages, encoding, full } =
+  const { attachments, enqueue, remove, clear, restoreReadyImages, encoding, full } =
     useAttachedImages();
 
   const formatRejection = useCallback(
@@ -964,12 +983,12 @@ export function ThreadComposer({
   }, [disabled]);
 
   const readyImages = useMemo(
-    () => images.filter((img): img is AttachedImage & { dataUrl: string } =>
+    () => attachments.filter((img): img is AttachedImage & { dataUrl: string } =>
       img.status === "ready" && typeof img.dataUrl === "string",
     ),
-    [images],
+    [attachments],
   );
-  const hasErrors = images.some((img) => img.status === "error");
+  const hasErrors = attachments.some((img) => img.status === "error");
 
   const hasComposerContent = value.trim().length > 0 || readyImages.length > 0;
   const canSend =
@@ -1515,7 +1534,9 @@ export function ThreadComposer({
 
   const sendNextQueuedPrompt = useCallback(() => {
     if (queuedPrompts.length === 0) return;
-    const nextPrompt = queuedPrompts.find((prompt) => prompt.text.trim());
+    const nextPrompt = queuedPrompts.find(
+      (prompt) => prompt.text.trim().length > 0 || (prompt.images?.length ?? 0) > 0,
+    );
     if (!nextPrompt) {
       setQueuedPrompts([]);
       return;
@@ -1566,7 +1587,11 @@ export function ThreadComposer({
               data_url: img.dataUrl,
               name: img.file.name,
             },
-            preview: { url: img.dataUrl, name: img.file.name },
+            preview: {
+              kind: img.kind,
+              url: img.dataUrl,
+              name: img.file.name,
+            },
           }))
         : undefined;
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
@@ -1693,7 +1718,7 @@ export function ThreadComposer({
       if (
         isStreaming
         && value.length === 0
-        && images.length === 0
+        && attachments.length === 0
         && !e.altKey
         && !e.ctrlKey
         && !e.metaKey
@@ -1769,7 +1794,7 @@ export function ThreadComposer({
         ? t("thread.composer.voice.transcribing")
         : t("thread.composer.voice.hint");
   const showStopButton = isStreaming && !!onStop;
-  const relaxedHeroInput = isHero && images.length === 0 && !isStreaming;
+  const relaxedHeroInput = isHero && attachments.length === 0 && !isStreaming;
   const inputTextClasses = cn(
     "w-full resize-none bg-transparent",
     isHero
@@ -1852,15 +1877,15 @@ export function ThreadComposer({
             }}
           />
         ) : null}
-        {images.length > 0 ? (
+        {attachments.length > 0 ? (
           <div
             className="flex flex-wrap gap-2 px-3 pt-3"
-            aria-label={t("thread.composer.attachImage")}
+            aria-label={t("thread.composer.attachFile", { defaultValue: t("thread.composer.attachImage") })}
           >
-            {images.map((img) => (
+            {attachments.map((attachment) => (
               <AttachmentChip
-                key={img.id}
-                image={img}
+                key={attachment.id}
+                image={attachment}
                 labelRemove={t("thread.composer.remove")}
                 labelEncoding={t("thread.composer.encoding")}
                 normalizedHint={(orig, current) =>
@@ -1870,11 +1895,11 @@ export function ThreadComposer({
                   })
                 }
                 formatError={formatRejection}
-                onRemove={() => removeChip(img.id)}
-                onKeyDown={onChipKey(img.id)}
+                onRemove={() => removeChip(attachment.id)}
+                onKeyDown={onChipKey(attachment.id)}
                 registerRef={(el) => {
-                  if (el) chipRefs.current.set(img.id, el);
-                  else chipRefs.current.delete(img.id);
+                  if (el) chipRefs.current.set(attachment.id, el);
+                  else chipRefs.current.delete(attachment.id);
                 }}
               />
             ))}
@@ -1954,7 +1979,7 @@ export function ThreadComposer({
               size="icon"
               variant="ghost"
               disabled={attachButtonDisabled}
-              aria-label={t("thread.composer.attachImage")}
+              aria-label={t("thread.composer.attachFile", { defaultValue: t("thread.composer.attachImage") })}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "rounded-full text-muted-foreground hover:text-foreground",
@@ -2785,8 +2810,8 @@ function AttachmentChip({
       )}
       data-testid="composer-chip"
     >
-      <div className="relative h-10 w-10 overflow-hidden rounded-md bg-background">
-        {image.previewUrl ? (
+      <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-md bg-background">
+        {image.kind === "image" && image.previewUrl ? (
           <img
             src={image.previewUrl}
             alt=""
@@ -2795,10 +2820,12 @@ function AttachmentChip({
             draggable={false}
             className="h-full w-full object-cover"
           />
+        ) : image.kind === "file" ? (
+          <span className="text-[1.35rem] leading-none" aria-hidden>
+            <FileReferenceIcon kind={fileKindForPath(image.file.name)} />
+          </span>
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
-          </div>
+          <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
         )}
         {image.status === "encoding" ? (
           <div

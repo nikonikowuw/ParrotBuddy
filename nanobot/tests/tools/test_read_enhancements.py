@@ -344,6 +344,25 @@ class TestReadOfficeDocuments:
         assert "Error" not in result
 
     @pytest.mark.asyncio
+    async def test_media_directory_docx_is_readable(self, tmp_path, monkeypatch):
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        media_file = tmp_path / "media" / "websocket" / "report.docx"
+        media_file.parent.mkdir(parents=True)
+        media_file.write_bytes(b"PK")
+        monkeypatch.setattr(
+            "nanobot.agent.tools.path_utils.get_media_dir",
+            lambda: tmp_path / "media",
+        )
+
+        tool = ReadFileTool(workspace=workspace, allowed_dir=workspace)
+        with patch("nanobot.utils.document.extract_text", return_value="Quarterly revenue"):
+            result = await tool.execute(path=str(media_file))
+
+        assert "Quarterly revenue" in result
+        assert "Error" not in result
+
+    @pytest.mark.asyncio
     async def test_xlsx_returns_extracted_text(self, tool, tmp_path):
         with patch("nanobot.utils.document.extract_text", return_value="--- Sheet: Sheet1 ---\nName\tAge\nAlice\t30"):
             f = tmp_path / "test.xlsx"

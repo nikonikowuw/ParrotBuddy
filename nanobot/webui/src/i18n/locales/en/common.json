@@ -947,6 +947,7 @@
         "drag": "Drag to reorder"
       },
       "attachImage": "Attach image",
+      "attachFile": "Attach file",
       "imageMode": {
         "label": "Image Generation",
         "toggle": "Toggle image generation mode",
@@ -1074,9 +1075,12 @@
       "imageRejected": {
         "unsupported_type": "Unsupported file type",
         "too_many_images": "Max {{max}} images per message",
+        "too_many_files": "Max {{max}} attachments per message",
+        "too_many_documents": "Max {{max}} documents per message",
         "magic_mismatch": "File doesn't look like a real image",
         "decode_failed": "Couldn't decode this image",
         "too_large": "Image is too large — try a smaller one",
+        "file_too_large": "File is too large — try one under 6 MB",
         "io": "Couldn't read this file"
       },
       "workspace": {

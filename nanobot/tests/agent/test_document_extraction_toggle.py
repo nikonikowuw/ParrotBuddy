@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from nanobot.agent.loop import AgentLoop, TurnContext, TurnState
+from nanobot.agent.tools.filesystem import ReadFileTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import ChannelsConfig
 from nanobot.providers.base import LLMResponse
 from nanobot.utils.document import reference_non_image_attachments
 
 
-def _make_loop(tmp_path: Path, channels_config: ChannelsConfig | None = None) -> AgentLoop:
+def _make_loop(tmp_path: Path) -> AgentLoop:
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="ok"))
@@ -22,60 +22,16 @@ def _make_loop(tmp_path: Path, channels_config: ChannelsConfig | None = None) ->
         provider=provider,
         workspace=tmp_path,
         model="test-model",
-        channels_config=channels_config,
     )
 
 
 @pytest.mark.asyncio
-async def test_state_restore_extracts_documents_by_default(
+async def test_state_restore_references_documents_for_read_file(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loop = _make_loop(tmp_path)
     doc_path = tmp_path / "report.txt"
     doc_path.write_text("Quarterly revenue is $5M", encoding="utf-8")
-    calls: list[tuple[str, list[str]]] = []
-
-    def fake_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
-        calls.append((content, media))
-        return f"{content}\n\n[File: report.txt]\nQuarterly revenue is $5M", []
-
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fake_extract_documents)
-
-    ctx = TurnContext(
-        msg=InboundMessage(
-            channel="cli",
-            sender_id="u",
-            chat_id="c",
-            content="summarize",
-            media=[str(doc_path)],
-        ),
-        session_key="cli:c",
-        state=TurnState.RESTORE,
-        turn_id="turn-1",
-        runtime=loop.llm_runtime(),
-    )
-
-    assert await loop._state_restore(ctx) == "ok"
-
-    assert calls == [("summarize", [str(doc_path)])]
-    assert "Quarterly revenue" in ctx.msg.content
-    assert ctx.msg.media == []
-
-
-@pytest.mark.asyncio
-async def test_state_restore_references_documents_when_extraction_disabled(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    loop = _make_loop(tmp_path, ChannelsConfig(extract_document_text=False))
-    doc_path = tmp_path / "report.txt"
-    doc_path.write_text("Quarterly revenue is $5M", encoding="utf-8")
-
-    def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
-        raise AssertionError("document extraction should be disabled")
-
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fail_extract_documents)
 
     ctx = TurnContext(
         msg=InboundMessage(
@@ -97,11 +53,13 @@ async def test_state_restore_references_documents_when_extraction_disabled(
     assert f"[Attachment: {doc_path}]" in ctx.msg.content
     assert ctx.msg.media == []
 
+    read_result = await ReadFileTool(workspace=tmp_path).execute(path=str(doc_path))
+    assert "Quarterly revenue is $5M" in read_result
+
 
 @pytest.mark.asyncio
-async def test_pending_followup_references_documents_when_extraction_disabled(
+async def test_pending_followup_references_documents_for_read_file(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     doc_path = tmp_path / "followup.txt"
     doc_path.write_text("Do not inject this file body", encoding="utf-8")
@@ -113,14 +71,9 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
         captured_messages.append([dict(message) for message in messages])
         return LLMResponse(content=f"answer-{call_count['n']}", tool_calls=[], usage={})
 
-    loop = _make_loop(tmp_path, ChannelsConfig(extract_document_text=False))
+    loop = _make_loop(tmp_path)
     loop.provider.chat_with_retry = chat_with_retry
     loop.tools.get_definitions = MagicMock(return_value=[])
-
-    def fail_extract_documents(content: str, media: list[str]) -> tuple[str, list[str]]:
-        raise AssertionError("document extraction should be disabled")
-
-    monkeypatch.setattr("nanobot.agent.loop.extract_documents", fail_extract_documents)
 
     pending_queue: asyncio.Queue[InboundMessage] = asyncio.Queue()
     await pending_queue.put(
@@ -153,7 +106,7 @@ async def test_pending_followup_references_documents_when_extraction_disabled(
     assert "Do not inject this file body" not in injected_user_content
 
 
-def test_document_extraction_disabled_still_preserves_images(tmp_path: Path) -> None:
+def test_reference_preserves_images_for_vision_input(tmp_path: Path) -> None:
     image_path = tmp_path / "chart.png"
     image_path.write_bytes(
         base64.b64decode(

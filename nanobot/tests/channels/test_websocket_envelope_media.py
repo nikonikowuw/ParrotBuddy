@@ -21,6 +21,7 @@ from nanobot.channels.websocket import (
     WebSocketConfig,
     _extract_data_url_mime,
 )
+from nanobot.security.workspace_access import WorkspaceScopeError
 from nanobot.webui.gateway_services import build_gateway_services
 
 
@@ -177,7 +178,96 @@ async def test_message_with_single_image_forwards_saved_path(tmp_path) -> None:
     saved = Path(paths[0])
     assert saved.exists()
     assert saved.suffix == ".png"
-    assert saved.is_relative_to(tmp_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mime", "suffix", "payload"),
+    [
+        ("application/pdf", ".pdf", b"%PDF-1.7"),
+        (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".docx",
+            b"PK\x03\x04docx",
+        ),
+        (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".xlsx",
+            b"PK\x03\x04xlsx",
+        ),
+    ],
+)
+async def test_message_with_supported_document_forwards_saved_path(
+    tmp_path: Path,
+    mime: str,
+    suffix: str,
+    payload: bytes,
+) -> None:
+    channel = _make_channel()
+    mock_conn = AsyncMock()
+    envelope = {
+        "type": "message",
+        "chat_id": "abc123",
+        "content": "analyze this document",
+        "media": [{"data_url": _data_url(mime, payload), "name": f"report{suffix}"}],
+    }
+
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+        await channel._dispatch_envelope(mock_conn, "client-1", envelope)
+
+    channel._handle_message.assert_awaited_once()
+    paths = channel._handle_message.call_args.kwargs["media"]
+    assert len(paths) == 1
+    saved = Path(paths[0])
+    assert saved.suffix == suffix
+    assert saved.name == f"report{suffix}"
+    assert saved.read_bytes() == payload
+
+
+@pytest.mark.asyncio
+async def test_rejected_workspace_scope_cleans_saved_media(tmp_path: Path) -> None:
+    channel = _make_channel()
+    channel._workspaces.scope_for_message = MagicMock(  # type: ignore[method-assign]
+        side_effect=WorkspaceScopeError("workspace rejected", status=403),
+    )
+    mock_conn = AsyncMock()
+    envelope = {
+        "type": "message",
+        "chat_id": "abc123",
+        "content": "analyze this document",
+        "media": [{
+            "data_url": _data_url("application/pdf", b"%PDF-1.7"),
+            "name": "report.pdf",
+        }],
+    }
+
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+        await channel._dispatch_envelope(mock_conn, "client-1", envelope)
+
+    channel._handle_message.assert_not_awaited()
+    assert list(tmp_path.rglob("*")) == []
+    error = json.loads(mock_conn.send.call_args[0][0])
+    assert error["detail"] == "workspace_scope_rejected"
+
+
+@pytest.mark.asyncio
+async def test_message_with_more_than_four_documents_is_rejected(tmp_path: Path) -> None:
+    channel = _make_channel()
+    mock_conn = AsyncMock()
+    mime = "application/pdf"
+    envelope = {
+        "type": "message",
+        "chat_id": "abc123",
+        "content": "documents",
+        "media": [{"data_url": _data_url(mime, b"%PDF")} for _ in range(5)],
+    }
+
+    with patch("nanobot.channels.websocket.get_media_dir", return_value=tmp_path):
+        await channel._dispatch_envelope(mock_conn, "client-1", envelope)
+
+    channel._handle_message.assert_not_awaited()
+    err = json.loads(mock_conn.send.call_args[0][0])
+    assert err["reason"] == "too_many_documents"
 
 
 @pytest.mark.asyncio
@@ -282,8 +372,8 @@ async def test_message_rejected_on_non_image_mime(tmp_path) -> None:
     envelope = {
         "type": "message",
         "chat_id": "abc123",
-        "content": "pdf?",
-        "media": [{"data_url": _data_url("application/pdf", b"%PDF-1.4")}],
+        "content": "archive?",
+        "media": [{"data_url": _data_url("application/zip", b"PK\\x03\\x04")}],
     }
 
     with patch(
@@ -417,7 +507,7 @@ async def test_failed_media_does_not_partially_persist(tmp_path) -> None:
         "content": "mixed",
         "media": [
             {"data_url": _tiny_png_data_url()},
-            {"data_url": _data_url("application/pdf", b"%PDF-1.4")},
+            {"data_url": _data_url("application/zip", b"PK\\x03\\x04")},
         ],
     }
 

@@ -83,6 +83,45 @@ describe("ThreadComposer — image attachments", () => {
     expect(images[0].media.name).toBe("a.png");
   });
 
+  it("attaches a supported document and sends it as a file attachment", async () => {
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], "report.pdf", {
+      type: "application/pdf",
+    });
+    const onSend = vi.fn();
+
+    render(<ThreadComposer onSend={onSend} />);
+
+    const input = screen
+      .getByLabelText(/message input/i)
+      .closest("form")!
+      .querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("composer-chip")).toHaveTextContent("report.pdf");
+    });
+
+    const textarea = screen.getByLabelText(/message input/i);
+    fireEvent.change(textarea, { target: { value: "summarize" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const [content, attachments] = onSend.mock.calls[0];
+    expect(content).toBe("summarize");
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].media).toMatchObject({
+      data_url: "data:application/pdf;base64,JVBERg==",
+      name: "report.pdf",
+    });
+    expect(attachments[0].preview).toMatchObject({
+      kind: "file",
+      name: "report.pdf",
+    });
+  });
+
   it("blocks send while an image is still encoding", async () => {
     const file = pngFile("slow.png");
     let resolveEncode: (r: EncodeResponse) => void = () => {};

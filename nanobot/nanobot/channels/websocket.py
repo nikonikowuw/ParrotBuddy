@@ -242,12 +242,13 @@ def _parse_envelope(raw: str) -> dict[str, Any] | None:
 
 # Per-message media limits. The server-side guard is a touch looser than the
 # client's ``Worker`` normalization target (6 MB) — tolerate client slop, but
-# still cap total ingress at ``_MAX_IMAGES_PER_MESSAGE * _MAX_IMAGE_BYTES``
-# which fits comfortably inside ``max_message_bytes``.
+# still cap image/document counts before decoding.
 _MAX_IMAGES_PER_MESSAGE = 4
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _MAX_VIDEOS_PER_MESSAGE = 1
 _MAX_VIDEO_BYTES = 20 * 1024 * 1024
+_MAX_DOCUMENTS_PER_MESSAGE = 4
+_MAX_DOCUMENT_BYTES = 8 * 1024 * 1024
 
 # Image MIME whitelist — matches the Composer's ``accept`` list. SVG is
 # explicitly excluded to avoid the XSS surface inside embedded scripts.
@@ -264,7 +265,16 @@ _VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
     "video/quicktime",
 })
 
-_UPLOAD_MIME_ALLOWED: frozenset[str] = _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED
+_DOCUMENT_MIME_ALLOWED: frozenset[str] = frozenset({
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+})
+
+_UPLOAD_MIME_ALLOWED: frozenset[str] = (
+    _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED | _DOCUMENT_MIME_ALLOWED
+)
 
 _DATA_URL_MIME_RE = re.compile(r"^data:([^;,]+)(?:;[^,]*)*;base64,", re.DOTALL)
 
@@ -601,6 +611,25 @@ class WebSocketChannel(BaseChannel):
 
     # -- Inbound WebSocket envelopes ---------------------------------------
 
+    def _cleanup_saved_media(self, paths: list[str], media_dir: Path) -> None:
+        """Remove saved uploads and any empty per-file name directories."""
+        try:
+            media_root = media_dir.resolve()
+        except OSError:
+            media_root = media_dir
+        for raw_path in paths:
+            path = Path(raw_path)
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                self.logger.warning("failed to unlink media {}: {}", path, exc)
+            try:
+                parent = path.parent.resolve()
+                if parent != media_root and media_root in parent.parents:
+                    parent.rmdir()
+            except (OSError, RuntimeError):
+                pass
+
     def _save_envelope_media(
         self,
         media: list[Any],
@@ -618,28 +647,27 @@ class WebSocketChannel(BaseChannel):
         """
         image_count = 0
         video_count = 0
+        document_count = 0
         for item in media:
             mime = _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
             if mime in _VIDEO_MIME_ALLOWED:
                 video_count += 1
             elif mime in _IMAGE_MIME_ALLOWED:
                 image_count += 1
+            elif mime in _DOCUMENT_MIME_ALLOWED:
+                document_count += 1
         if image_count > _MAX_IMAGES_PER_MESSAGE:
             return [], "too_many_images"
         if video_count > _MAX_VIDEOS_PER_MESSAGE:
             return [], "too_many_videos"
+        if document_count > _MAX_DOCUMENTS_PER_MESSAGE:
+            return [], "too_many_documents"
 
         media_dir = get_media_dir("websocket")
         paths: list[str] = []
 
         def _abort(reason: str) -> tuple[list[str], str]:
-            for p in paths:
-                try:
-                    Path(p).unlink(missing_ok=True)
-                except OSError as exc:
-                    self.logger.warning(
-                        "failed to unlink partial media {}: {}", p, exc
-                    )
+            self._cleanup_saved_media(paths, media_dir)
             return [], reason
 
         for item in media:
@@ -654,10 +682,25 @@ class WebSocketChannel(BaseChannel):
             if mime not in _UPLOAD_MIME_ALLOWED:
                 return _abort("mime")
             is_video = mime in _VIDEO_MIME_ALLOWED
-            max_bytes = _MAX_VIDEO_BYTES if is_video else _MAX_IMAGE_BYTES
+            is_document = mime in _DOCUMENT_MIME_ALLOWED
+            max_bytes = (
+                _MAX_VIDEO_BYTES
+                if is_video
+                else _MAX_DOCUMENT_BYTES
+                if is_document
+                else _MAX_IMAGE_BYTES
+            )
             try:
+                filename = (
+                    item.get("name")
+                    if is_document and isinstance(item.get("name"), str)
+                    else None
+                )
                 saved = save_base64_data_url(
-                    data_url, media_dir, max_bytes=max_bytes,
+                    data_url,
+                    media_dir,
+                    max_bytes=max_bytes,
+                    filename=filename,
                 )
             except FileSizeExceeded:
                 return _abort("size")
@@ -797,72 +840,89 @@ class WebSocketChannel(BaseChannel):
                     )
                     return
 
-            # Allow image-only turns (content may be empty when media is attached).
+            # Allow attachment-only turns (content may be empty when media is attached).
             if not content.strip() and not media_paths:
                 await self._send_event(connection, "error", detail="missing content")
                 return
+            def cleanup_media() -> None:
+                if media_paths:
+                    self._cleanup_saved_media(media_paths, get_media_dir("websocket"))
+
             # Auto-attach on first use so clients can one-shot without a separate attach.
             self._attach(connection, cid)
-            await self._hydrate_after_subscribe(cid)
+            try:
+                await self._hydrate_after_subscribe(cid)
+            except Exception:
+                cleanup_media()
+                raise
 
             # Resolve after hydration so a concurrent downgrade cannot be overwritten.
-            scope = await self._workspace_scope_or_error(
-                connection,
-                lambda: self._workspaces.scope_for_message(
-                    envelope,
+            try:
+                scope = await self._workspace_scope_or_error(
+                    connection,
+                    lambda: self._workspaces.scope_for_message(
+                        envelope,
+                        chat_id=cid,
+                        chat_running=websocket_turn_wall_started_at(cid) is not None,
+                        controls_available=self._workspace_controls_available(connection),
+                    ),
                     chat_id=cid,
-                    chat_running=websocket_turn_wall_started_at(cid) is not None,
-                    controls_available=self._workspace_controls_available(connection),
-                ),
-                chat_id=cid,
-            )
+                )
+            except Exception:
+                cleanup_media()
+                raise
             if scope is None:
+                cleanup_media()
                 return
 
-            metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
-            if envelope.get("webui") is True:
-                metadata["webui"] = True
-                metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
-            cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
-            if cli_apps:
-                metadata["cli_apps"] = cli_apps
-            mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
-            if mcp_presets:
-                metadata["mcp_presets"] = mcp_presets
-            lightrag_workspaces_raw = envelope.get("lightrag_workspaces")
-            lightrag_workspaces = normalize_lightrag_workspaces(lightrag_workspaces_raw)
-            if lightrag_workspaces:
-                metadata["lightrag_workspaces"] = lightrag_workspaces
-            metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
-            # Persist the per-chat scope + KB selection in a single save (mirror
-            # persist_scope for workspace_scope) so both survive reload via GET
-            # /api/sessions. The KB selection is only persisted when the field is
-            # present: non-WebUI clients that don't carry it must not wipe the
-            # WebUI's selection on every message.
-            self._workspaces.persist_message_metadata(
-                cid,
-                scope=scope,
-                lightrag_workspaces=(
-                    lightrag_workspaces if lightrag_workspaces_raw is not None else None
-                ),
-            )
-            if metadata.get("webui") is True and self.is_allowed(client_id):
-                self._transcripts.append_user_message(
+            try:
+                metadata: dict[str, Any] = {"remote": getattr(connection, "remote_address", None)}
+                if envelope.get("webui") is True:
+                    metadata["webui"] = True
+                    metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
+                cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
+                if cli_apps:
+                    metadata["cli_apps"] = cli_apps
+                mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
+                if mcp_presets:
+                    metadata["mcp_presets"] = mcp_presets
+                lightrag_workspaces_raw = envelope.get("lightrag_workspaces")
+                lightrag_workspaces = normalize_lightrag_workspaces(lightrag_workspaces_raw)
+                if lightrag_workspaces:
+                    metadata["lightrag_workspaces"] = lightrag_workspaces
+                metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
+                # Persist the per-chat scope + KB selection in a single save (mirror
+                # persist_scope for workspace_scope) so both survive reload via GET
+                # /api/sessions. The KB selection is only persisted when the field is
+                # present: non-WebUI clients that don't carry it must not wipe the
+                # WebUI's selection on every message.
+                self._workspaces.persist_message_metadata(
                     cid,
-                    content,
-                    metadata=metadata,
-                    media_paths=media_paths or None,
-                    cli_apps=cli_apps or None,
-                    mcp_presets=mcp_presets or None,
+                    scope=scope,
+                    lightrag_workspaces=(
+                        lightrag_workspaces if lightrag_workspaces_raw is not None else None
+                    ),
                 )
-            await self._handle_message(
-                sender_id=client_id,
-                chat_id=cid,
-                content=content,
-                media=media_paths or None,
-                metadata=metadata,
-                is_dm=False,
-            )
+                if metadata.get("webui") is True and self.is_allowed(client_id):
+                    self._transcripts.append_user_message(
+                        cid,
+                        content,
+                        metadata=metadata,
+                        media_paths=media_paths or None,
+                        cli_apps=cli_apps or None,
+                        mcp_presets=mcp_presets or None,
+                    )
+                await self._handle_message(
+                    sender_id=client_id,
+                    chat_id=cid,
+                    content=content,
+                    media=media_paths or None,
+                    metadata=metadata,
+                    is_dm=False,
+                )
+            except Exception:
+                cleanup_media()
+                raise
             return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
 
