@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LightRagEmbeddedView } from "@/components/lightrag/LightRagEmbeddedView";
+import { LightRagEmbeddedView, toLightRagLanguage } from "@/components/lightrag/LightRagEmbeddedView";
+import i18n from "@/i18n";
 import type { SettingsPayload } from "@/lib/types";
 
 const STORAGE_KEY = "nanobot-webui.lightrag-embedded-server";
@@ -59,12 +60,25 @@ afterEach(() => {
 });
 
 describe("LightRagEmbeddedView", () => {
-  it("loads the default workspace server in a documents iframe", () => {
+  it("maps nanobot locales to LightRAG languages correctly", () => {
+    expect(toLightRagLanguage("zh-CN")).toBe("zh");
+    expect(toLightRagLanguage("zh-TW")).toBe("zh_TW");
+    expect(toLightRagLanguage("en")).toBe("en");
+    expect(toLightRagLanguage("fr")).toBe("fr");
+    expect(toLightRagLanguage("ja")).toBe("ja");
+    expect(toLightRagLanguage("ko")).toBe("ko");
+    expect(toLightRagLanguage("vi")).toBe("vi");
+    expect(toLightRagLanguage("es")).toBe("en");
+    expect(toLightRagLanguage("pt-BR")).toBe("en");
+    expect(toLightRagLanguage("id")).toBe("en");
+  });
+
+  it("loads the default workspace server in a documents iframe with lang param", () => {
     render(<LightRagEmbeddedView settings={TWO_SERVERS} tab="documents" theme="dark" />);
     const frame = screen.getByTitle("docs — LightRAG");
     expect(frame).toHaveAttribute(
       "src",
-      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=dark",
+      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=dark&lang=en",
     );
   });
 
@@ -73,7 +87,7 @@ describe("LightRagEmbeddedView", () => {
     const frame = screen.getByTitle("alpha — LightRAG");
     expect(frame).toHaveAttribute(
       "src",
-      "http://127.0.0.1:9700/webui/?embedded=1&tab=knowledge-graph&theme=light",
+      "http://127.0.0.1:9700/webui/?embedded=1&tab=knowledge-graph&theme=light&lang=en",
     );
   });
 
@@ -83,7 +97,7 @@ describe("LightRagEmbeddedView", () => {
     const frame = screen.getByTitle("prod — LightRAG");
     expect(frame).toHaveAttribute(
       "src",
-      "https://rag.example.com/webui/?embedded=1&tab=documents&theme=light",
+      "https://rag.example.com/webui/?embedded=1&tab=documents&theme=light&lang=en",
     );
   });
 
@@ -100,9 +114,25 @@ describe("LightRagEmbeddedView", () => {
     fireEvent.click(prod);
     expect(screen.getByTitle("prod — LightRAG")).toHaveAttribute(
       "src",
-      "https://rag.example.com/webui/?embedded=1&tab=documents&theme=light",
+      "https://rag.example.com/webui/?embedded=1&tab=documents&theme=light&lang=en",
     );
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe("prod");
+  });
+
+  it("updates the iframe url and frameKey when language changes", async () => {
+    const { rerender } = render(<LightRagEmbeddedView settings={TWO_SERVERS} tab="documents" theme="light" />);
+    expect(screen.getByTitle("docs — LightRAG")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light&lang=en",
+    );
+
+    await i18n.changeLanguage("zh-CN");
+    rerender(<LightRagEmbeddedView settings={TWO_SERVERS} tab="documents" theme="light" />);
+    expect(screen.getByTitle("docs — LightRAG")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light&lang=zh",
+    );
+    await i18n.changeLanguage("en");
   });
 
   it("shows an empty state when no server is configured", () => {

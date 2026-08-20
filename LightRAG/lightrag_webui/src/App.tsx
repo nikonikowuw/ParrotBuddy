@@ -19,13 +19,15 @@ import ApiSite from '@/features/ApiSite'
 
 import { Tabs, TabsContent } from '@/components/ui/Tabs'
 
+import { normalizeLanguage } from '@/i18n'
+
 // Embedded-mode URL overrides (nanobot iframe). The frame is opened with
-// ?embedded=1&tab=documents|knowledge-graph&theme=light|dark so the first
-// paint matches the nanobot menu entry that opened it. Applied at module load
-// (after the persist store has rehydrated from path-scoped storage) to avoid
-// flashing the previously persisted tab/theme. Inside the iframe the user can
-// still use LightRAG's own header to switch tabs or theme; those choices stay
-// in the embedded instance's own storage.
+// ?embedded=1&tab=documents|knowledge-graph&theme=light|dark&lang=en|zh|...
+// so the first paint matches the nanobot menu entry that opened it. Applied at
+// module load (after the persist store has rehydrated from path-scoped storage)
+// to avoid flashing the previously persisted tab/theme/language. Inside the
+// iframe the user can still use LightRAG's own header to switch tabs or theme;
+// those choices stay in the embedded instance's own storage.
 function applyEmbeddedUrlOverrides(): void {
   if (typeof window === 'undefined') return
   const params = new URLSearchParams(window.location.search)
@@ -37,6 +39,10 @@ function applyEmbeddedUrlOverrides(): void {
   const theme = params.get('theme')
   if (theme === 'light' || theme === 'dark') {
     useSettingsStore.getState().setTheme(theme)
+  }
+  const lang = normalizeLanguage(params.get('lang'))
+  if (lang) {
+    useSettingsStore.getState().setLanguage(lang)
   }
 }
 applyEmbeddedUrlOverrides()

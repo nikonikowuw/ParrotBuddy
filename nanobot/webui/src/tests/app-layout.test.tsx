@@ -2270,7 +2270,7 @@ describe("App layout", () => {
     const frame = await screen.findByTitle("docs — LightRAG");
     expect(frame).toHaveAttribute(
       "src",
-      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light",
+      "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light&lang=en",
     );
     expect(within(sidebar).getByRole("button", { name: "Knowledge Base" })).toHaveAttribute(
       "aria-current",

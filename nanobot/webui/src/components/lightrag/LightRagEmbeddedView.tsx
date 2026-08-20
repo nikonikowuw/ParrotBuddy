@@ -24,6 +24,62 @@ import { cn } from "@/lib/utils";
 
 export type LightRagEmbeddedTab = "documents" | "knowledge-graph";
 
+export type LightRagLanguage =
+  | "en"
+  | "zh"
+  | "fr"
+  | "ar"
+  | "zh_TW"
+  | "ru"
+  | "ja"
+  | "de"
+  | "uk"
+  | "ko"
+  | "vi";
+
+const LIGHTRAG_LANGUAGES: readonly LightRagLanguage[] = [
+  "en",
+  "zh",
+  "fr",
+  "ar",
+  "zh_TW",
+  "ru",
+  "ja",
+  "de",
+  "uk",
+  "ko",
+  "vi",
+];
+
+/** Map nanobot supported locales to LightRAG supported language identifiers. */
+export function toLightRagLanguage(
+  locale: string | null | undefined,
+): LightRagLanguage {
+  if (!locale) return "en";
+  const lower = locale.toLowerCase().trim();
+  if (
+    lower === "zh-cn" ||
+    lower === "zh" ||
+    lower.startsWith("zh-hans") ||
+    lower.startsWith("zh-sg")
+  ) {
+    return "zh";
+  }
+  if (
+    lower === "zh-tw" ||
+    lower === "zh-hk" ||
+    lower === "zh-mo" ||
+    lower.startsWith("zh-hant")
+  ) {
+    return "zh_TW";
+  }
+  const base = lower.split(/[-_]/)[0] as LightRagLanguage;
+  if (LIGHTRAG_LANGUAGES.includes(base)) {
+    return base;
+  }
+  return "en";
+}
+
 /** Browser-local navigation preference: which LightRAG server the embedded
  * page last pointed at (per-browser, never written back to config). */
 const EMBEDDED_SERVER_STORAGE_KEY = "nanobot-webui.lightrag-embedded-server";
@@ -50,8 +106,9 @@ export function LightRagEmbeddedView({
   tab,
   theme,
 }: LightRagEmbeddedViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const lightragLang = toLightRagLanguage(i18n.resolvedLanguage ?? i18n.language);
 
   const servers = settings?.lightrag?.servers ?? [];
   const defaultServerName = settings?.lightrag?.default_workspace ?? null;
@@ -95,9 +152,14 @@ export function LightRagEmbeddedView({
   const iframeUrl = useMemo(() => {
     if (!server) return null;
     const base = server.api_base.replace(/\/+$/, "");
-    const params = new URLSearchParams({ embedded: "1", tab, theme });
+    const params = new URLSearchParams({
+      embedded: "1",
+      tab,
+      theme,
+      lang: lightragLang,
+    });
     return `${base}/webui/?${params.toString()}`;
-  }, [server, tab, theme]);
+  }, [server, tab, theme, lightragLang]);
 
   // Reset load state whenever the frame target changes (server / tab / theme /
   // manual retry all swap the iframe `key`, forcing a fresh load).
@@ -140,7 +202,7 @@ export function LightRagEmbeddedView({
     );
   }
 
-  const frameKey = `${selectedName}:${tab}:${theme}:${retryCount}`;
+  const frameKey = `${selectedName}:${tab}:${theme}:${lightragLang}:${retryCount}`;
 
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
