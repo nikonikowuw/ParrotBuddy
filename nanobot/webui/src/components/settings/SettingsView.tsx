@@ -584,7 +584,7 @@ export function SettingsView({
   const [cliAppsError, setCliAppsError] = useState<string | null>(null);
   const [nanobotFeaturesError, setNanobotFeaturesError] = useState<string | null>(null);
   const [cliAppsFocusName, setCliAppsFocusName] = useState<string | null>(null);
-  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("ready");
+  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("mcp");
   const [mcpMessage, setMcpMessage] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
@@ -5722,11 +5722,14 @@ function AppsCatalogSettings({
               className="h-12 rounded-[14px] border-border/70 bg-card/90 pl-11 text-[15px] shadow-sm"
             />
           </div>
-          <SegmentedControl
-            value={filter}
-            options={filterOptions}
-            onChange={(value) => onFilterChange(value as AppsKindFilter)}
-          />
+          {/* Filter options hidden by design */}
+          <div className="hidden">
+            <SegmentedControl
+              value={filter}
+              options={filterOptions}
+              onChange={(value) => onFilterChange(value as AppsKindFilter)}
+            />
+          </div>
         </div>
       </section>
 
@@ -5794,17 +5797,15 @@ function AppsCatalogSettings({
         )}
       </section>
 
-      {filter === "mcp" ? (
-        <McpCustomServerPanel
-          form={customMcpForm}
-          configImport={mcpConfigImport}
-          actionKey={mcpActionKey}
-          onFormChange={onCustomMcpFormChange}
-          onConfigImportChange={onMcpConfigImportChange}
-          onSave={onSaveCustomMcp}
-          onImportConfig={onImportMcpConfig}
-        />
-      ) : null}
+      <McpCustomServerPanel
+        form={customMcpForm}
+        configImport={mcpConfigImport}
+        actionKey={mcpActionKey}
+        onFormChange={onCustomMcpFormChange}
+        onConfigImportChange={onMcpConfigImportChange}
+        onSave={onSaveCustomMcp}
+        onImportConfig={onImportMcpConfig}
+      />
 
       <ThirdPartyBrandNotice />
     </div>

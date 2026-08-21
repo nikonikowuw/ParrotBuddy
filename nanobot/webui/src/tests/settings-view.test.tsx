@@ -324,16 +324,42 @@ describe("SettingsView Apps catalog", () => {
         });
       }
       if (url === "/api/settings/mcp-presets") {
-        return jsonResponse({ presets: [], installed_count: 0 });
-      }
-      if (url === "/api/settings/cli-apps/uninstall?name=anygen") {
         return jsonResponse({
-          apps: [{ ...installedAnyGen, installed: false, status: "available" }],
+          presets: [{
+            name: "anygen",
+            display_name: "AnyGen",
+            description: "Generate docs, slides, websites and more via AnyGen cloud API",
+            category: "Integration",
+            requires: "API key",
+            installed: true,
+            enabled: true,
+            status: "ready",
+            available: true,
+            required_fields: [],
+            configured: true,
+          }],
+          installed_count: 1,
+        });
+      }
+      if (url === "/api/settings/mcp-presets/remove?name=anygen") {
+        return jsonResponse({
+          presets: [{
+            name: "anygen",
+            display_name: "AnyGen",
+            description: "Generate docs, slides, websites and more via AnyGen cloud API",
+            category: "Integration",
+            requires: "API key",
+            installed: false,
+            enabled: false,
+            status: "available",
+            available: true,
+            required_fields: [],
+            configured: false,
+          }],
           installed_count: 0,
-          catalog_updated_at: "2026-04-18",
           last_action: {
             ok: true,
-            message: "Uninstalled CLI for AnyGen.",
+            message: "Removed integration for AnyGen.",
             still_available: false,
           },
         });
@@ -346,23 +372,23 @@ describe("SettingsView Apps catalog", () => {
 
     expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
     expect(await screen.findByText("AnyGen")).toBeInTheDocument();
-    const uninstall = screen.getByRole("button", { name: "Uninstall app" });
+    const uninstall = screen.getByRole("button", { name: "Remove" });
 
     fireEvent.click(uninstall);
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/settings/cli-apps/uninstall?name=anygen",
+        "/api/settings/mcp-presets/remove?name=anygen",
         expect.objectContaining({
           headers: { Authorization: "Bearer tok" },
         }),
       ),
     );
-    expect(await screen.findByText("Uninstalled CLI for AnyGen.")).toBeInTheDocument();
+    expect(await screen.findByText("Removed integration for AnyGen.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
-    expect(screen.queryByText("Uninstalled CLI for AnyGen.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Removed integration for AnyGen.")).not.toBeInTheDocument();
   });
 
   it("keeps runtime dependencies out of Apps and explains chat mentions", async () => {
@@ -399,10 +425,10 @@ describe("SettingsView Apps catalog", () => {
     renderSettingsView({ initialSection: "apps" });
 
     expect(await screen.findByText("Add tools to nanobot, then @ them in chat.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ready" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Integrations" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Plugins" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ready", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apps", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Integrations", hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Plugins", hidden: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Api")).not.toBeInTheDocument();
     expect(screen.getByText("0 ready")).toBeInTheDocument();
   });
