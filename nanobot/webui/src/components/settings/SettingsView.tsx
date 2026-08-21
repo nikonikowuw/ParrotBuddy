@@ -8633,7 +8633,7 @@ function LightRagSettings({
     const lightrag = settings?.lightrag;
     setEnabled(lightrag?.enabled ?? false);
     setServers((current) => {
-      const payloadServers = lightrag?.servers ?? [];
+      const payloadServers = lightrag?.enterprise_servers ?? lightrag?.servers ?? [];
       const byName = new Map(payloadServers.map((s) => [s.name, s]));
       const next: LightRagServerDraft[] = [];
       const seen = new Set<string>();
@@ -8738,11 +8738,12 @@ function LightRagSettings({
     setError(null);
     try {
       const payload = await updateLightragSettings(token, {
-        servers: servers.map((server, i) => buildServerRow(server, i === index)),
+        enterprise_servers: servers.map((server, i) => buildServerRow(server, i === index)),
       });
       setServers((current) => {
         const updated = [...current];
-        const savedRow = payload.lightrag?.servers?.find(
+        const serverList = payload.lightrag?.enterprise_servers ?? payload.lightrag?.servers;
+        const savedRow = serverList?.find(
           (s) => s.name === target.name.trim() || (target.original_name && s.name === target.original_name),
         );
         if (savedRow) updated[index] = lightragServerDraftFromPayload(savedRow);
@@ -8789,7 +8790,7 @@ function LightRagSettings({
     try {
       const remaining = servers.filter((_, i) => i !== deleteIndex);
       const payload = await updateLightragSettings(token, {
-        servers: remaining.map((server) => buildServerRow(server, false)),
+        enterprise_servers: remaining.map((server) => buildServerRow(server, false)),
       });
       setServers((current) => current.filter((_, i) => i !== deleteIndex));
       setExpandedIndex(null);
@@ -8820,17 +8821,17 @@ function LightRagSettings({
   return (
     <div className="space-y-7">
       <section>
-        <SettingsSectionTitle>{tx("settings.lightrag.title", "LightRAG Knowledge Base")}</SettingsSectionTitle>
+        <SettingsSectionTitle>{tx("settings.lightrag.title", "Enterprise Knowledge Base")}</SettingsSectionTitle>
         {error && <div className="mb-4 text-sm text-red-500 font-medium">{error}</div>}
         <SettingsGroup>
           <SettingsRow
-            title={tx("settings.lightrag.enable", "Enable Knowledge Base Integration")}
-            description={tx("settings.lightrag.enableDesc", "Allow the agent to query configured LightRAG vector databases.")}
+            title={tx("settings.lightrag.enable", "Enable Enterprise Knowledge Base")}
+            description={tx("settings.lightrag.enableDesc", "Allow the agent to query configured enterprise LightRAG vector databases.")}
           >
             <ToggleButton
               checked={enabled}
               onChange={toggleEnabled}
-              ariaLabel={tx("settings.lightrag.enable", "Enable Knowledge Base Integration")}
+              ariaLabel={tx("settings.lightrag.enable", "Enable Enterprise Knowledge Base")}
               label={tx("settings.lightrag.enableLabel", "Enable")}
             />
           </SettingsRow>
@@ -9004,7 +9005,7 @@ function LightRagSettings({
             {servers.length === 0 && (
               <div className="flex flex-col items-center justify-center py-9 text-center border-t border-border/45 bg-muted/5">
                 <Database className="h-8 w-8 text-muted-foreground/30 mb-3" />
-                <p className="text-[13px] text-muted-foreground mb-4">{tx("settings.lightrag.noServers", "No knowledge bases configured.")}</p>
+                <p className="text-[13px] text-muted-foreground mb-4">{tx("settings.lightrag.noServers", "No enterprise knowledge bases configured.")}</p>
                 <Button variant="outline" size="sm" onClick={addServer} className="rounded-full h-8 text-[12.5px]">
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   {tx("settings.lightrag.addServer", "Add Server")}
@@ -9017,9 +9018,9 @@ function LightRagSettings({
       <Dialog open={deleteIndex !== null} onOpenChange={(open) => { if (!open && !deleteSaving) setDeleteIndex(null); }}>
         <DialogContent className="w-[min(calc(100vw-2rem),26rem)] rounded-[26px]">
           <DialogHeader>
-            <DialogTitle>{tx("settings.lightrag.deleteTitle", "Delete knowledge base")}</DialogTitle>
+            <DialogTitle>{tx("settings.lightrag.deleteTitle", "Delete enterprise knowledge base")}</DialogTitle>
             <DialogDescription>
-              {tx("settings.lightrag.deleteDescription", "This removes {{name}} from the knowledge base list.", {
+              {tx("settings.lightrag.deleteDescription", "This removes {{name}} from the enterprise knowledge base list.", {
                 name: deleteTarget?.name || tx("settings.lightrag.newServer", "New Server"),
               })}
             </DialogDescription>

@@ -905,6 +905,32 @@ def settings_payload(
         },
         "lightrag": {
             "enabled": lightrag_config.enabled,
+            "personal": {
+                "enabled": lightrag_config.personal.enabled,
+                "name": lightrag_config.personal.name,
+                "api_base": lightrag_config.personal.api_base,
+                "api_key_hint": _mask_secret_hint(lightrag_config.personal.api_key),
+                "default_query_mode": lightrag_config.personal.default_query_mode,
+                "default_top_k": lightrag_config.personal.default_top_k,
+                "timeout": lightrag_config.personal.timeout,
+                "proxy": lightrag_config.personal.proxy,
+                "include_references": lightrag_config.personal.include_references,
+                "include_chunk_content": lightrag_config.personal.include_chunk_content,
+            },
+            "enterprise_servers": [
+                {
+                    "name": s.name,
+                    "api_base": s.api_base,
+                    "api_key_hint": _mask_secret_hint(s.api_key),
+                    "default_query_mode": s.default_query_mode,
+                    "default_top_k": s.default_top_k,
+                    "timeout": s.timeout,
+                    "proxy": s.proxy,
+                    "include_references": s.include_references,
+                    "include_chunk_content": s.include_chunk_content,
+                }
+                for s in lightrag_config.enterprise_servers
+            ],
             "servers": [
                 {
                     "name": s.name,
@@ -917,7 +943,7 @@ def settings_payload(
                     "include_references": s.include_references,
                     "include_chunk_content": s.include_chunk_content,
                 }
-                for s in lightrag_config.servers
+                for s in lightrag_config.enterprise_servers
             ],
             "default_workspace": lightrag_config.default_workspace,
         },
@@ -982,7 +1008,10 @@ def settings_usage_payload() -> dict[str, Any]:
 
 def update_lightrag_settings(data: dict[str, Any]) -> dict[str, Any]:
     """Update LightRAG multi-server configuration without clearing omitted fields."""
-    from nanobot.agent.tools.lightrag import LightRagServerConfig
+    from nanobot.agent.tools.lightrag import (
+        LightRagServerConfig,
+        is_reserved_lightrag_server_name,
+    )
 
     config = load_config()
     lightrag_config = config.tools.lightrag
@@ -1007,20 +1036,30 @@ def update_lightrag_settings(data: dict[str, Any]) -> dict[str, Any]:
             lightrag_config.default_workspace = default_workspace
             changed = True
 
-    if "servers" in data:
-        if not isinstance(data["servers"], list):
+    raw_servers = None
+    if "enterprise_servers" in data:
+        raw_servers = data["enterprise_servers"]
+    elif "enterpriseServers" in data:
+        raw_servers = data["enterpriseServers"]
+    elif "servers" in data:
+        raw_servers = data["servers"]
+
+    if raw_servers is not None:
+        if not isinstance(raw_servers, list):
             raise WebUISettingsError("servers must be a list")
 
-        existing_by_name = {server.name: server for server in lightrag_config.servers}
+        existing_by_name = {server.name: server for server in lightrag_config.enterprise_servers}
         new_servers: list[LightRagServerConfig] = []
         seen: set[str] = set()
-        for index, raw_server in enumerate(data["servers"]):
+        for index, raw_server in enumerate(raw_servers):
             if not isinstance(raw_server, dict):
                 raise WebUISettingsError(f"servers[{index}] must be an object")
             raw_name = raw_server.get("name")
             if not isinstance(raw_name, str) or not raw_name.strip():
                 raise WebUISettingsError(f"servers[{index}].name is required")
             name = raw_name.strip()
+            if is_reserved_lightrag_server_name(name, lightrag_config.personal.name):
+                raise WebUISettingsError(f"reserved LightRAG server name: {name}")
             if name in seen:
                 raise WebUISettingsError(f"duplicate LightRAG server name: {name}")
             seen.add(name)
@@ -1082,8 +1121,8 @@ def update_lightrag_settings(data: dict[str, Any]) -> dict[str, Any]:
             lightrag_config.default_workspace = None
             changed = True
 
-        if lightrag_config.servers != new_servers:
-            lightrag_config.servers = new_servers
+        if lightrag_config.enterprise_servers != new_servers:
+            lightrag_config.enterprise_servers = new_servers
             changed = True
 
     if changed:

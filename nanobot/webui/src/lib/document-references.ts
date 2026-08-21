@@ -73,6 +73,7 @@ export interface RAGEvidenceItem {
   fullPath: string;
   href?: string;
   media: RAGEvidenceMedia[];
+  serverLabel?: string;
 }
 
 function safeStructuredPath(value: unknown, allowAbsolute: boolean): string | null {
@@ -119,9 +120,11 @@ function normalizeStructuredReference(value: unknown): RAGReference | null {
   const filePath = safeStructuredPath(raw.file_path ?? raw.path, true);
   if (!filePath) return null;
   const serverName = typeof raw.server_name === "string" ? raw.server_name.trim() : undefined;
+  const serverLabel = typeof raw.server_label === "string" ? raw.server_label.trim() : undefined;
   const reference: RAGReference = {
     file_path: filePath,
     server_name: serverName || undefined,
+    server_label: serverLabel || undefined,
   };
   for (const key of ["reference_id", "title", "best_score_type"] as const) {
     if (typeof raw[key] === "string" && raw[key].trim()) reference[key] = raw[key].trim();
@@ -242,6 +245,7 @@ export function extractRagEvidenceFromMessages(
       fullPath,
       href,
       media,
+      serverLabel: reference.server_label ?? reference.server_name,
     };
   });
 }

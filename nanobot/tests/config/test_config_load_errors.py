@@ -82,6 +82,35 @@ def test_load_config_migrates_legacy_lightrag_workspaces(tmp_path) -> None:
     assert docs.include_chunk_content is True
 
 
+def test_load_config_localizes_legacy_personal_default_name(tmp_path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({
+            "tools": {
+                "lightrag": {
+                    "enabled": True,
+                    "personal": {
+                        "enabled": True,
+                        "name": "Personal Knowledge Base",
+                        "apiBase": "http://127.0.0.1:9621",
+                    },
+                    "enterprise_servers": [
+                        {"name": "docs", "api_base": "http://127.0.0.1:9622"}
+                    ],
+                    "default_workspace": "Personal Knowledge Base",
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.tools.lightrag.personal.name is None
+    assert config.tools.lightrag.default_workspace == "__personal__"
+    assert [server.name for server in config.tools.lightrag.enterprise_servers] == ["docs"]
+
+
 def test_load_config_normalizes_legacy_lightrag_default_workspace_sentinel(
     tmp_path,
 ) -> None:

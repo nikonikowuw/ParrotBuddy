@@ -255,6 +255,7 @@ interface ThreadComposerProps {
   /** LightRAG knowledge-base (workspace) selector. */
   knowledgeBaseEnabled?: boolean;
   knowledgeBaseOptions?: string[];
+  personalKnowledgeBaseName?: string | null;
   selectedKnowledgeBases?: string[];
   onKnowledgeBasesChange?: (bases: string[]) => void;
 }
@@ -883,6 +884,7 @@ export function ThreadComposer({
   transcriptionProvider = null,
   knowledgeBaseEnabled = false,
   knowledgeBaseOptions = [],
+  personalKnowledgeBaseName,
   selectedKnowledgeBases = [],
   onKnowledgeBasesChange,
 }: ThreadComposerProps) {
@@ -2011,6 +2013,7 @@ export function ThreadComposer({
               <KnowledgeBaseMenu
                 options={knowledgeBaseOptions}
                 selected={selectedKnowledgeBases}
+                personalLabel={personalKnowledgeBaseName}
                 isHero={isHero}
                 disabled={disabled}
                 onChange={onKnowledgeBasesChange}

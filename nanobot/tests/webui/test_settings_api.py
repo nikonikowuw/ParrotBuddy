@@ -1567,6 +1567,26 @@ def test_update_lightrag_settings_rejects_invalid_url(
         })
 
 
+def test_update_lightrag_settings_rejects_reserved_personal_names(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.tools.lightrag.personal.name = "我的个人库"
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    for name in ("__personal__", "我的个人库"):
+        with pytest.raises(WebUISettingsError, match="reserved LightRAG server name"):
+            update_lightrag_settings({
+                "servers": [{
+                    "name": name,
+                    "api_base": "http://127.0.0.1:9621",
+                }],
+            })
+
+
 def test_settings_payload_includes_lightrag_server_fields(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1589,6 +1609,7 @@ def test_settings_payload_includes_lightrag_server_fields(
     monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
 
     payload = settings_payload()
+    assert payload["lightrag"]["personal"]["name"] is None
     row = payload["lightrag"]["servers"][0]
 
     assert row["name"] == "docs"

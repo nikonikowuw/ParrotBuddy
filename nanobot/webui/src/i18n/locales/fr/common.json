@@ -75,7 +75,7 @@
       "appearance": "Apparence",
       "models": "Modèles",
       "providers": "Fournisseurs",
-      "lightrag": "Base de connaissances",
+      "lightrag": "Base de connaissances d'entreprise",
       "image": "Images",
       "voice": "Voix",
       "browser": "Internet",
@@ -717,17 +717,17 @@
       "detailDescription": "Détails de {{name}}."
     },
     "lightrag": {
-      "title": "Base de connaissances LightRAG",
-      "enable": "Activer l'intégration de la base de connaissances",
-      "enableDesc": "Autoriser l'agent à interroger les bases de données vectorielles LightRAG configurées.",
+      "title": "Base de connaissances d'entreprise",
+      "enable": "Activer la base de connaissances d'entreprise",
+      "enableDesc": "Autoriser l'agent à interroger les bases de données vectorielles LightRAG d'entreprise configurées.",
       "enableLabel": "Activer",
-      "serversTitle": "Serveurs",
+      "serversTitle": "Serveurs d'entreprise",
       "addServer": "Ajouter un serveur",
       "newServer": "Nouveau serveur",
       "removeServer": "Supprimer le serveur",
       "serverName": "Nom d'affichage",
       "nameHelp": "Utilisé dans le menu de sélection de chat.",
-      "namePlaceholder": "ex. Documents médicaux",
+      "namePlaceholder": "ex. Documents d'entreprise",
       "apiBase": "URL de base de l'API",
       "apiKey": "Clé API",
       "apiKeyHelp": "Laisser vide si non requis.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "Références",
       "includeChunkContent": "Inclure le contenu des blocs",
       "includeChunkContentLabel": "Contenu des blocs",
-      "noServers": "Aucune base de connaissances configurée.",
-      "deleteTitle": "Supprimer la base de connaissances",
-      "deleteDescription": "Ceci supprime {{name}} de la liste des bases de connaissances.",
+      "noServers": "Aucune base de connaissances d'entreprise configurée.",
+      "deleteTitle": "Supprimer la base de connaissances d'entreprise",
+      "deleteDescription": "Ceci supprime {{name}} de la liste des bases de connaissances d'entreprise.",
       "delete": "Supprimer"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "Sélectionnez les bases de connaissances à exploiter",
         "selectedCount": "{{count}} sélectionnées",
         "none": "Aucun espace de travail configuré",
-        "clear": "Effacer la sélection"
+        "clear": "Effacer la sélection",
+        "personal": "Base de connaissances personnelle",
+        "enterprise": "Base de connaissances d'entreprise"
       }
     },
     "scrollToBottom": "Faire défiler vers le bas",

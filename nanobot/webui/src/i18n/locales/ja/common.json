@@ -75,7 +75,7 @@
       "appearance": "外観",
       "models": "モデル",
       "providers": "プロバイダー",
-      "lightrag": "ナレッジベース",
+      "lightrag": "企業ナレッジベース",
       "image": "画像",
       "voice": "音声",
       "browser": "ウェブ",
@@ -717,17 +717,17 @@
       "detailDescription": "{{name}} の詳細。"
     },
     "lightrag": {
-      "title": "LightRAG ナレッジベース",
-      "enable": "ナレッジベース統合を有効化",
-      "enableDesc": "設定された LightRAG ベクトルデータベースの照会をエージェントに許可します。",
+      "title": "企業ナレッジベース",
+      "enable": "企業ナレッジベースを有効化",
+      "enableDesc": "設定された企業 LightRAG ベクトルデータベースをエージェントが照会できるようにします。",
       "enableLabel": "有効化",
-      "serversTitle": "サーバー",
+      "serversTitle": "企業サーバー",
       "addServer": "サーバーを追加",
       "newServer": "新しいサーバー",
       "removeServer": "サーバーを削除",
       "serverName": "表示名",
       "nameHelp": "チャット選択メニューで使用されます。",
-      "namePlaceholder": "例：医療ドキュメント",
+      "namePlaceholder": "例：企業ドキュメント",
       "apiBase": "API ベース URL",
       "apiKey": "API キー",
       "apiKeyHelp": "不要な場合は空欄のままにしてください。",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "参照",
       "includeChunkContent": "チャンクコンテンツを含める",
       "includeChunkContentLabel": "チャンクコンテンツ",
-      "noServers": "ナレッジベースが設定されていません。",
-      "deleteTitle": "ナレッジベースを削除",
-      "deleteDescription": "ナレッジベース一覧から {{name}} を削除します。",
+      "noServers": "企業ナレッジベースが設定されていません。",
+      "deleteTitle": "企業ナレッジベースを削除",
+      "deleteDescription": "企業ナレッジベース一覧から {{name}} を削除します。",
       "delete": "削除"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "検索するナレッジベースを選択",
         "selectedCount": "{{count}}件選択中",
         "none": "ワークスペースが未設定",
-        "clear": "選択をクリア"
+        "clear": "選択をクリア",
+        "personal": "個人ナレッジベース",
+        "enterprise": "企業ナレッジベース"
       }
     },
     "scrollToBottom": "一番下へスクロール",

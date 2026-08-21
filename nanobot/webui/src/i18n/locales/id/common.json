@@ -75,7 +75,7 @@
       "appearance": "Tampilan",
       "models": "Model",
       "providers": "Penyedia",
-      "lightrag": "Basis Pengetahuan",
+      "lightrag": "Basis Pengetahuan Perusahaan",
       "image": "Gambar",
       "voice": "Suara",
       "browser": "Internet",
@@ -717,17 +717,17 @@
       "detailDescription": "Detail untuk {{name}}."
     },
     "lightrag": {
-      "title": "Basis Pengetahuan LightRAG",
-      "enable": "Aktifkan Integrasi Basis Pengetahuan",
-      "enableDesc": "Izinkan agen untuk mengkueri basis data vektor LightRAG yang dikonfigurasi.",
+      "title": "Basis Pengetahuan Perusahaan",
+      "enable": "Aktifkan Basis Pengetahuan Perusahaan",
+      "enableDesc": "Izinkan agen mengkueri basis data vektor LightRAG perusahaan yang dikonfigurasi.",
       "enableLabel": "Aktifkan",
-      "serversTitle": "Server",
+      "serversTitle": "Server Perusahaan",
       "addServer": "Tambah Server",
       "newServer": "Server Baru",
       "removeServer": "Hapus Server",
       "serverName": "Nama tampilan",
       "nameHelp": "Digunakan dalam menu pemilihan obrolan.",
-      "namePlaceholder": "mis., Dokumen Medis",
+      "namePlaceholder": "mis., Dokumen Perusahaan",
       "apiBase": "URL dasar API",
       "apiKey": "Kunci API",
       "apiKeyHelp": "Biarkan kosong jika tidak diperlukan.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "Referensi",
       "includeChunkContent": "Sertakan konten potongan",
       "includeChunkContentLabel": "Konten potongan",
-      "noServers": "Tidak ada basis pengetahuan yang dikonfigurasi.",
-      "deleteTitle": "Hapus basis pengetahuan",
-      "deleteDescription": "Ini menghapus {{name}} dari daftar basis pengetahuan.",
+      "noServers": "Tidak ada basis pengetahuan perusahaan yang dikonfigurasi.",
+      "deleteTitle": "Hapus basis pengetahuan perusahaan",
+      "deleteDescription": "Ini menghapus {{name}} dari daftar basis pengetahuan perusahaan.",
       "delete": "Hapus"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "Pilih basis pengetahuan untuk diambil",
         "selectedCount": "{{count}} dipilih",
         "none": "Tidak ada ruang kerja yang dikonfigurasi",
-        "clear": "Hapus pilihan"
+        "clear": "Hapus pilihan",
+        "personal": "Basis Pengetahuan Pribadi",
+        "enterprise": "Basis Pengetahuan Perusahaan"
       }
     },
     "scrollToBottom": "Gulir ke bawah",

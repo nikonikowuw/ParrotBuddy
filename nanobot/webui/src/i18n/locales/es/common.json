@@ -75,7 +75,7 @@
       "appearance": "Apariencia",
       "models": "Modelos",
       "providers": "Proveedores",
-      "lightrag": "Base de conocimientos",
+      "lightrag": "Base de conocimientos empresarial",
       "image": "Imagen",
       "voice": "Voz",
       "browser": "Internet",
@@ -717,17 +717,17 @@
       "detailDescription": "Detalles de {{name}}."
     },
     "lightrag": {
-      "title": "Base de conocimientos LightRAG",
-      "enable": "Habilitar integración de base de conocimientos",
-      "enableDesc": "Permitir que el agente consulte bases de datos vectoriales LightRAG configuradas.",
+      "title": "Base de conocimientos empresarial",
+      "enable": "Habilitar base de conocimientos empresarial",
+      "enableDesc": "Permitir que el agente consulte bases de datos vectoriales LightRAG empresariales configuradas.",
       "enableLabel": "Habilitar",
-      "serversTitle": "Servidores",
+      "serversTitle": "Servidores empresariales",
       "addServer": "Añadir servidor",
       "newServer": "Nuevo servidor",
       "removeServer": "Eliminar servidor",
       "serverName": "Nombre para mostrar",
       "nameHelp": "Se utiliza en el menú de selección de chat.",
-      "namePlaceholder": "ej., Documentos médicos",
+      "namePlaceholder": "ej., Documentos empresariales",
       "apiBase": "URL base de API",
       "apiKey": "Clave API",
       "apiKeyHelp": "Dejar en blanco si no es necesario.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "Referencias",
       "includeChunkContent": "Incluir contenido de fragmentos",
       "includeChunkContentLabel": "Contenido de fragmentos",
-      "noServers": "No hay bases de conocimientos configuradas.",
-      "deleteTitle": "Eliminar base de conocimientos",
-      "deleteDescription": "Esto elimina {{name}} de la lista de bases de conocimientos.",
+      "noServers": "No hay bases de conocimientos empresariales configuradas.",
+      "deleteTitle": "Eliminar base de conocimientos empresarial",
+      "deleteDescription": "Esto elimina {{name}} de la lista de bases de conocimientos empresariales.",
       "delete": "Eliminar"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "Selecciona las bases de conocimientos para recuperar",
         "selectedCount": "{{count}} seleccionadas",
         "none": "Sin espacios de trabajo configurados",
-        "clear": "Borrar selección"
+        "clear": "Borrar selección",
+        "personal": "Base de conocimientos personal",
+        "enterprise": "Base de conocimientos empresarial"
       }
     },
     "scrollToBottom": "Desplazarse al final",

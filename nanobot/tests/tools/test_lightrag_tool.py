@@ -7,6 +7,8 @@ import pytest
 
 from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.agent.tools.lightrag import (
+    PERSONAL_KB_IDENTIFIER,
+    LightRagPersonalConfig,
     LightRagQueryTool,
     LightRagServerConfig,
     LightRagToolConfig,
@@ -358,7 +360,57 @@ async def test_webui_single_server_selected(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_webui_empty_selection_skips(monkeypatch):
+async def test_webui_personal_knowledge_base_queries_with_display_label(monkeypatch):
+    captured: dict = {}
+
+    async def mock_post(self, url, **kw):
+        captured["url"] = url
+        return _response(json={
+            "response": "personal answer",
+            "references": [{"reference_id": "1", "file_path": "notes.pdf"}],
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    config = LightRagToolConfig(
+        enabled=True,
+        personal=LightRagPersonalConfig(name="My Personal KB", api_base="http://127.0.0.1:9700"),
+    )
+    tool = LightRagQueryTool(config=config)
+
+    with _bind(_webui_ctx([PERSONAL_KB_IDENTIFIER])):
+        result = await tool.execute(query="What is in my notes?")
+
+    assert captured["url"] == "http://127.0.0.1:9700/query"
+    assert "## Knowledge Base: My Personal KB" in result
+
+
+@pytest.mark.asyncio
+async def test_webui_personal_knowledge_base_uses_ui_label_when_not_configured(monkeypatch):
+    async def mock_post(self, url, **kw):
+        return _response(json={
+            "response": "personal answer",
+            "references": [{"reference_id": "1", "file_path": "notes.pdf"}],
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+    config = LightRagToolConfig(
+        enabled=True,
+        personal=LightRagPersonalConfig(api_base="http://127.0.0.1:9700"),
+    )
+    tool = LightRagQueryTool(config=config)
+
+    with _bind(_webui_ctx([PERSONAL_KB_IDENTIFIER])):
+        result = await tool.execute(query="What is in my notes?")
+
+    assert "## Knowledge Base: __personal__" not in result
+    assert "Personal Knowledge Base" not in result
+    assert result.references == [
+        {
+            "reference_id": "1",
+            "file_path": "notes.pdf",
+            "server_name": PERSONAL_KB_IDENTIFIER,
+        }
+    ]
     async def mock_post(self, url, **kw):
         raise AssertionError("must not call LightRAG when WebUI selection is empty")
 

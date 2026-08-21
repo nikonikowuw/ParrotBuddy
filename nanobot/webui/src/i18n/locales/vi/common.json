@@ -75,7 +75,7 @@
       "appearance": "Giao diện",
       "models": "Mô hình",
       "providers": "Nhà cung cấp",
-      "lightrag": "Cơ sở kiến thức",
+      "lightrag": "Cơ sở kiến thức doanh nghiệp",
       "image": "Hình ảnh",
       "voice": "Giọng nói",
       "browser": "Trang web",
@@ -717,17 +717,17 @@
       "detailDescription": "Chi tiết cho {{name}}."
     },
     "lightrag": {
-      "title": "Cơ sở kiến thức LightRAG",
-      "enable": "Bật tích hợp cơ sở kiến thức",
-      "enableDesc": "Cho phép tác tử truy vấn cơ sở dữ liệu vector LightRAG đã cấu hình.",
+      "title": "Cơ sở kiến thức doanh nghiệp",
+      "enable": "Bật cơ sở kiến thức doanh nghiệp",
+      "enableDesc": "Cho phép tác tử truy vấn các cơ sở dữ liệu vector LightRAG doanh nghiệp đã cấu hình.",
       "enableLabel": "Bật",
-      "serversTitle": "Máy chủ",
+      "serversTitle": "Máy chủ doanh nghiệp",
       "addServer": "Thêm máy chủ",
       "newServer": "Máy chủ mới",
       "removeServer": "Xóa máy chủ",
       "serverName": "Tên hiển thị",
       "nameHelp": "Được sử dụng trong menu chọn trò chuyện.",
-      "namePlaceholder": "ví dụ: Tài liệu y tế",
+      "namePlaceholder": "ví dụ: Tài liệu doanh nghiệp",
       "apiBase": "URL cơ sở API",
       "apiKey": "Khóa API",
       "apiKeyHelp": "Bỏ trống nếu không yêu cầu.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "Tham chiếu",
       "includeChunkContent": "Bao gồm nội dung đoạn",
       "includeChunkContentLabel": "Nội dung đoạn",
-      "noServers": "Chưa cấu hình cơ sở kiến thức nào.",
-      "deleteTitle": "Xóa cơ sở kiến thức",
-      "deleteDescription": "Hành động này sẽ xóa {{name}} khỏi danh sách cơ sở kiến thức.",
+      "noServers": "Chưa cấu hình cơ sở kiến thức doanh nghiệp nào.",
+      "deleteTitle": "Xóa cơ sở kiến thức doanh nghiệp",
+      "deleteDescription": "Hành động này sẽ xóa {{name}} khỏi danh sách cơ sở kiến thức doanh nghiệp.",
       "delete": "Xóa"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "Chọn cơ sở kiến thức để truy xuất",
         "selectedCount": "Đã chọn {{count}}",
         "none": "Chưa cấu hình không gian làm việc",
-        "clear": "Xóa lựa chọn"
+        "clear": "Xóa lựa chọn",
+        "personal": "Cơ sở kiến thức cá nhân",
+        "enterprise": "Cơ sở kiến thức doanh nghiệp"
       }
     },
     "scrollToBottom": "Cuộn xuống cuối",

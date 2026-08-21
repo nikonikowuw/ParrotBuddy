@@ -110,7 +110,25 @@ export function LightRagEmbeddedView({
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const lightragLang = toLightRagLanguage(i18n.resolvedLanguage ?? i18n.language);
 
-  const servers = settings?.lightrag?.servers ?? [];
+  const servers = useMemo(() => {
+    const list: Array<{ name: string; label?: string; api_base: string }> = [];
+    if (settings?.lightrag?.personal?.enabled) {
+      list.push({
+        name: "__personal__",
+        label:
+          settings.lightrag.personal.name?.trim() ||
+          t("thread.composer.knowledgeBase.personal"),
+        api_base: settings.lightrag.personal.api_base,
+      });
+    }
+    const extra = settings?.lightrag?.enterprise_servers ?? settings?.lightrag?.servers ?? [];
+    for (const s of extra) {
+      if (!list.some((existing) => existing.name === s.name)) {
+        list.push(s);
+      }
+    }
+    return list;
+  }, [settings?.lightrag, t]);
   const defaultServerName = settings?.lightrag?.default_workspace ?? null;
 
   const [selectedName, setSelectedName] = useState<string | null>(() => {
@@ -228,7 +246,9 @@ export function LightRagEmbeddedView({
               title={server.api_base}
             >
               <Server className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-[16rem] truncate">{server.name}</span>
+              <span className="max-w-[16rem] truncate">
+                {server.label ?? server.name}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
@@ -243,7 +263,7 @@ export function LightRagEmbeddedView({
                 className={cn(item.name === server.name && "bg-foreground/[0.055]")}
               >
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{item.name}</span>
+                  <span className="truncate">{item.label ?? item.name}</span>
                   <span className="truncate text-[11px] text-muted-foreground">
                     {item.api_base}
                   </span>
@@ -290,7 +310,7 @@ export function LightRagEmbeddedView({
         <iframe
           key={frameKey}
           src={iframeUrl}
-          title={`${server.name} — LightRAG`}
+          title={`${server.label ?? server.name} — LightRAG`}
           referrerPolicy="no-referrer"
           onLoad={handleLoad}
           className="h-full w-full border-0"

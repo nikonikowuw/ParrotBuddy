@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import i18n from "@/i18n";
 import { KnowledgeBaseMenu } from "@/components/thread/KnowledgeBaseMenu";
 
 const TRIGGER_NAME = /knowledge base selector/i;
@@ -56,6 +57,44 @@ describe("KnowledgeBaseMenu", () => {
     const notes = await screen.findByRole("menuitemcheckbox", { name: "notes" });
     fireEvent.click(notes);
     expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("groups the built-in personal base separately from enterprise bases", async () => {
+    render(
+      <KnowledgeBaseMenu
+        options={["__personal__", "docs"]}
+        selected={[]}
+        personalLabel="My Personal KB"
+        isHero={false}
+        onChange={vi.fn()}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: TRIGGER_NAME }));
+
+    expect(await screen.findByRole("menuitemcheckbox", { name: "My Personal KB" })).toBeInTheDocument();
+    expect(screen.getByText("Enterprise KB")).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "docs" })).toBeInTheDocument();
+  });
+
+  it("localizes the built-in personal base when no custom label is configured", async () => {
+    const previousLanguage = i18n.language;
+    await i18n.changeLanguage("zh-CN");
+    try {
+      render(
+        <KnowledgeBaseMenu
+          options={["__personal__"]}
+          selected={[]}
+          isHero={false}
+          onChange={vi.fn()}
+        />,
+      );
+      fireEvent.pointerDown(screen.getByRole("button", { name: /知识库选择器/ }));
+      expect(
+        await screen.findByRole("menuitemcheckbox", { name: "个人知识库" }),
+      ).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage(previousLanguage);
+    }
   });
 
   it("clears the whole selection via the clear action", async () => {

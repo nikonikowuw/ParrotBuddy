@@ -202,6 +202,7 @@ describe("document-references", () => {
               {
                 reference_id: "1",
                 server_name: "proj",
+                server_label: "Enterprise Docs",
                 file_path: "demo.pdf",
                 title: "Demo guide",
                 source_url: "https://example.com/docs/demo.pdf",
@@ -217,6 +218,7 @@ describe("document-references", () => {
     const evidence = extractRagEvidenceFromMessages(activityMessages);
     expect(evidence).toHaveLength(1);
     expect(evidence[0].name).toBe("Demo guide");
+    expect(evidence[0].serverLabel).toBe("Enterprise Docs");
     expect(evidence[0].href).toBe("https://example.com/docs/demo.pdf");
     expect(evidence[0].media[0].href).toBe("/api/lightrag/file/proj/demo.blocks.assets/figure.png");
 

@@ -2058,7 +2058,12 @@ function Shell({
     onOpenSkills,
     onOpenDocuments,
     onOpenKnowledgeGraph,
-    showLightragEntries: (settingsSnapshot?.lightrag?.servers?.length ?? 0) > 0,
+    showLightragEntries:
+      (settingsSnapshot?.lightrag?.personal?.enabled ? 1 : 0) +
+        (settingsSnapshot?.lightrag?.enterprise_servers?.length ??
+          settingsSnapshot?.lightrag?.servers?.length ??
+          0) >
+      0,
     onOpenSearch: onOpenSessionSearch,
     activeUtility:
       view === "apps" ||

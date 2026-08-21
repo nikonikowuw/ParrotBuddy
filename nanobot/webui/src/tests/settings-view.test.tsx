@@ -2442,7 +2442,8 @@ describe("SettingsView LightRAG knowledge base", () => {
     );
     const updateQuery = String(updateCall?.[0]).split("?")[1] ?? "";
     const sent = JSON.parse(new URLSearchParams(updateQuery).get("payload") ?? "{}");
-    expect(sent.servers[0]).toMatchObject({ name: "docs2", original_name: "docs" });
+    const serverList = sent.enterprise_servers ?? sent.servers;
+    expect(serverList[0]).toMatchObject({ name: "docs2", original_name: "docs" });
   });
 
   it("deletes a knowledge base row through a confirmation dialog", async () => {
@@ -2453,7 +2454,10 @@ describe("SettingsView LightRAG knowledge base", () => {
       if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
       if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
       if (url.startsWith("/api/settings/lightrag/update")) {
-        return jsonResponse({ ...payload, lightrag: { ...payload.lightrag, servers: [] } });
+        return jsonResponse({
+          ...payload,
+          lightrag: { ...payload.lightrag, enterprise_servers: [], servers: [] },
+        });
       }
       return { ok: false, status: 404, json: async () => ({}) } as Response;
     });
@@ -2463,7 +2467,7 @@ describe("SettingsView LightRAG knowledge base", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Remove Server/ }));
     expect(
-      await screen.findByText("This removes docs from the knowledge base list."),
+      await screen.findByText("This removes docs from the enterprise knowledge base list."),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -2479,7 +2483,8 @@ describe("SettingsView LightRAG knowledge base", () => {
     );
     const updateQuery = String(updateCall?.[0]).split("?")[1] ?? "";
     const sent = JSON.parse(new URLSearchParams(updateQuery).get("payload") ?? "{}");
-    expect(sent.servers).toEqual([]);
-    expect(await screen.findByText("No knowledge bases configured.")).toBeInTheDocument();
+    const serverList = sent.enterprise_servers ?? sent.servers;
+    expect(serverList).toEqual([]);
+    expect(await screen.findByText("No enterprise knowledge bases configured.")).toBeInTheDocument();
   });
 });

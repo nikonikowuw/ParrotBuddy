@@ -231,6 +231,7 @@ export interface RAGReference {
   content?: string[];
   media?: RAGReferenceMedia[];
   server_name?: string;
+  server_label?: string;
 }
 
 export interface RAGEvidenceSummary {
@@ -509,6 +510,29 @@ export interface SettingsPayload {
   };
   lightrag?: {
     enabled: boolean;
+    personal?: {
+      enabled: boolean;
+      name?: string | null;
+      api_base: string;
+      api_key_hint?: string | null;
+      default_query_mode: string;
+      default_top_k?: number | null;
+      timeout?: number;
+      proxy?: string | null;
+      include_references?: boolean;
+      include_chunk_content?: boolean;
+    };
+    enterprise_servers?: Array<{
+      name: string;
+      api_base: string;
+      api_key_hint?: string | null;
+      default_query_mode: string;
+      default_top_k?: number | null;
+      timeout?: number;
+      proxy?: string | null;
+      include_references?: boolean;
+      include_chunk_content?: boolean;
+    }>;
     servers: Array<{
       name: string;
       api_base: string;

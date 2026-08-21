@@ -49,6 +49,29 @@ const NO_DEFAULT = payload({
   default_workspace: null,
 });
 
+const PERSONAL_ONLY = payload({
+  enabled: true,
+  personal: {
+    enabled: true,
+    name: "My Personal KB",
+    api_base: "http://127.0.0.1:9630",
+    default_query_mode: "mix",
+  },
+  servers: [],
+  default_workspace: null,
+});
+
+const PERSONAL_DEFAULT = payload({
+  enabled: true,
+  personal: {
+    enabled: true,
+    api_base: "http://127.0.0.1:9630",
+    default_query_mode: "mix",
+  },
+  servers: [],
+  default_workspace: null,
+});
+
 const NO_SERVERS = payload({
   enabled: true,
   servers: [],
@@ -133,6 +156,31 @@ describe("LightRagEmbeddedView", () => {
       "http://127.0.0.1:9621/webui/?embedded=1&tab=documents&theme=light&lang=zh",
     );
     await i18n.changeLanguage("en");
+  });
+
+  it("uses the configured personal display name in the embedded selector", async () => {
+    render(<LightRagEmbeddedView settings={PERSONAL_ONLY} tab="documents" theme="light" />);
+
+    expect(screen.getByTitle("My Personal KB — LightRAG")).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:9630/webui/?embedded=1&tab=documents&theme=light&lang=en",
+    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: "My Personal KB" }));
+    expect(await screen.findByRole("menuitem", { name: /My Personal KB/ })).toBeInTheDocument();
+  });
+
+  it("uses the localized personal label when no display override is configured", async () => {
+    const previousLanguage = i18n.language;
+    await i18n.changeLanguage("zh-CN");
+    try {
+      render(<LightRagEmbeddedView settings={PERSONAL_DEFAULT} tab="documents" theme="light" />);
+      expect(screen.getByTitle("个人知识库 — LightRAG")).toHaveAttribute(
+        "src",
+        "http://127.0.0.1:9630/webui/?embedded=1&tab=documents&theme=light&lang=zh",
+      );
+    } finally {
+      await i18n.changeLanguage(previousLanguage);
+    }
   });
 
   it("shows an empty state when no server is configured", () => {

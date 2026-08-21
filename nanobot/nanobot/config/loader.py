@@ -231,6 +231,9 @@ _LEGACY_LIGHTRAG_CONFIG_KEYS = {
 }
 
 
+_LEGACY_PERSONAL_DEFAULT_NAME = "Personal Knowledge Base"
+
+
 def _migrate_lightrag_config(data: dict) -> None:
     """Migrate the single-server LightRAG config to the multi-server shape."""
     tools = data.get("tools")
@@ -238,6 +241,39 @@ def _migrate_lightrag_config(data: dict) -> None:
         return
     lightrag = tools.get("lightrag")
     if not isinstance(lightrag, dict):
+        return
+
+    # Earlier builds persisted the English UI fallback as a personal name.
+    # Remove only that generated value; an explicitly configured name remains.
+    personal = lightrag.get("personal")
+    had_legacy_personal_name = (
+        isinstance(personal, dict)
+        and isinstance(personal.get("name"), str)
+        and personal["name"].strip() == _LEGACY_PERSONAL_DEFAULT_NAME
+    )
+    if had_legacy_personal_name:
+        personal.pop("name", None)
+        default_workspace = lightrag.get("default_workspace") or lightrag.get("defaultWorkspace")
+        if isinstance(default_workspace, str) and default_workspace.strip() == _LEGACY_PERSONAL_DEFAULT_NAME:
+            lightrag["default_workspace"] = "__personal__"
+
+    if isinstance(lightrag.get("enterprise_servers"), list) and lightrag["enterprise_servers"]:
+        default_workspace = lightrag.get("default_workspace") or lightrag.get("defaultWorkspace")
+        if default_workspace == "__default__":
+            first_name = lightrag["enterprise_servers"][0]
+            first_name = first_name.get("name") if isinstance(first_name, dict) else None
+            lightrag["default_workspace"] = str(first_name or "").strip() or None
+        for key in _LEGACY_LIGHTRAG_CONFIG_KEYS:
+            lightrag.pop(key, None)
+        return
+    if isinstance(lightrag.get("enterpriseServers"), list) and lightrag["enterpriseServers"]:
+        default_workspace = lightrag.get("default_workspace") or lightrag.get("defaultWorkspace")
+        if default_workspace == "__default__":
+            first_name = lightrag["enterpriseServers"][0]
+            first_name = first_name.get("name") if isinstance(first_name, dict) else None
+            lightrag["default_workspace"] = str(first_name or "").strip() or None
+        for key in _LEGACY_LIGHTRAG_CONFIG_KEYS:
+            lightrag.pop(key, None)
         return
     if isinstance(lightrag.get("servers"), list) and lightrag["servers"]:
         default_workspace = lightrag.get("default_workspace") or lightrag.get("defaultWorkspace")

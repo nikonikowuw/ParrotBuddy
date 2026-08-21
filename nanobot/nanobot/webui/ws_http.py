@@ -624,9 +624,13 @@ class GatewayHTTPHandler:
             return None
         tools_cfg = getattr(self.root_config, "tools", None)
         lightrag_cfg = getattr(tools_cfg, "lightrag", None)
-        if lightrag_cfg is None or not hasattr(lightrag_cfg, "servers"):
+        if lightrag_cfg is None:
             return None
-        servers_by_name = {s.name: s for s in lightrag_cfg.servers}
+        from nanobot.agent.tools.lightrag import configured_lightrag_servers
+
+        servers_by_name = {
+            server.name: server for server in configured_lightrag_servers(lightrag_cfg)
+        }
 
         import os
 
@@ -647,7 +651,11 @@ class GatewayHTTPHandler:
             if effective_api_key:
                 headers["X-API-Key"] = effective_api_key
             try:
-                async with httpx.AsyncClient() as client:
+                client_kwargs: dict[str, Any] = {}
+                proxy = getattr(server, "proxy", None)
+                if proxy:
+                    client_kwargs["proxy"] = proxy
+                async with httpx.AsyncClient(**client_kwargs) as client:
                     resp = await client.get(
                         url, headers=headers, follow_redirects=True, timeout=30.0
                     )
@@ -962,10 +970,12 @@ class GatewayHTTPHandler:
         # full config.
         tools_cfg = getattr(self.root_config, "tools", None)
         lightrag_cfg = getattr(tools_cfg, "lightrag", None)
-        if lightrag_cfg is not None and hasattr(lightrag_cfg, "servers"):
-            for s in lightrag_cfg.servers:
-                if s.name == server_name:
-                    server = s
+        if lightrag_cfg is not None:
+            from nanobot.agent.tools.lightrag import configured_lightrag_servers
+
+            for server_config in configured_lightrag_servers(lightrag_cfg):
+                if server_config.name == server_name:
+                    server = server_config
                     break
 
         if not server:
@@ -984,7 +994,11 @@ class GatewayHTTPHandler:
             headers["X-API-Key"] = effective_api_key
 
         try:
-            async with httpx.AsyncClient() as client:
+            client_kwargs: dict[str, Any] = {}
+            proxy = getattr(server, "proxy", None)
+            if proxy:
+                client_kwargs["proxy"] = proxy
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(url, headers=headers, follow_redirects=True, timeout=30.0)
                 if resp.status_code != 200:
                     return _http_error(resp.status_code, "LightRAG upstream error")

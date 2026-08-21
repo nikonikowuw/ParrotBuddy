@@ -34,6 +34,10 @@ export function SourcePanel({ evidence, onOpenFilePreview }: SourcePanelProps) {
             !item.href?.includes("/documents/file/")
           );
           const href = item.href ? withGatewayToken(item.href, gatewayToken) : undefined;
+          const serverLabel =
+            item.serverLabel === "__personal__"
+              ? t("thread.composer.knowledgeBase.personal")
+              : item.serverLabel?.trim();
 
           if (isExternalWeb && href) {
             return (
@@ -47,6 +51,11 @@ export function SourcePanel({ evidence, onOpenFilePreview }: SourcePanelProps) {
               >
                 <Globe className="h-3.5 w-3.5 shrink-0 text-sky-500" aria-hidden />
                 <span className="min-w-0 max-w-[240px] truncate">{item.name}</span>
+                {serverLabel ? (
+                  <span className="max-w-[180px] truncate text-[10px] text-muted-foreground">
+                    {serverLabel}
+                  </span>
+                ) : null}
                 <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground group-hover:text-current" aria-hidden />
               </a>
             );
@@ -62,10 +71,15 @@ export function SourcePanel({ evidence, onOpenFilePreview }: SourcePanelProps) {
                 className="inline-flex max-w-full items-center rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs no-underline shadow-none transition-colors hover:border-sky-500/50 hover:bg-muted"
                 title={item.fullPath || item.name}
               >
+                {serverLabel ? (
+                  <span className="mr-1 max-w-[180px] truncate text-[10px] text-muted-foreground">
+                    {serverLabel}
+                  </span>
+                ) : null}
                 <FileReferenceChip
                   path={item.fullPath}
                   displayName={item.name}
-                  tooltipPath={item.fullPath}
+                  tooltipPath={serverLabel ? `${serverLabel}: ${item.fullPath}` : item.fullPath}
                   previewPath={item.fullPath}
                   display="name"
                 />
@@ -78,10 +92,15 @@ export function SourcePanel({ evidence, onOpenFilePreview }: SourcePanelProps) {
               key={item.key}
               className="inline-flex max-w-full items-center rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs shadow-none transition-colors hover:border-sky-500/50 hover:bg-muted"
             >
+              {serverLabel ? (
+                <span className="mr-1 max-w-[180px] truncate text-[10px] text-muted-foreground">
+                  {serverLabel}
+                </span>
+              ) : null}
               <FileReferenceChip
                 path={item.fullPath}
                 displayName={item.name}
-                tooltipPath={item.fullPath}
+                tooltipPath={serverLabel ? `${serverLabel}: ${item.fullPath}` : item.fullPath}
                 previewPath={item.fullPath}
                 display="name"
                 onOpen={onOpenFilePreview}

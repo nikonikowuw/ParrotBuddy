@@ -75,7 +75,7 @@
       "appearance": "외관",
       "models": "모델",
       "providers": "제공자",
-      "lightrag": "지식 베이스",
+      "lightrag": "엔터프라이즈 지식 베이스",
       "image": "이미지",
       "voice": "음성",
       "browser": "웹",
@@ -717,17 +717,17 @@
       "detailDescription": "{{name}} 세부 정보。"
     },
     "lightrag": {
-      "title": "LightRAG 지식 베이스",
-      "enable": "지식 베이스 연동 활성화",
-      "enableDesc": "에이전트가 구성된 LightRAG 벡터 데이터베이스를 조회할 수 있도록 허용합니다.",
+      "title": "엔터프라이즈 지식 베이스",
+      "enable": "엔터프라이즈 지식 베이스 활성화",
+      "enableDesc": "에이전트가 구성된 엔터프라이즈 LightRAG 벡터 데이터베이스를 조회할 수 있도록 허용합니다.",
       "enableLabel": "활성화",
-      "serversTitle": "서버",
+      "serversTitle": "엔터프라이즈 서버",
       "addServer": "서버 추가",
       "newServer": "새 서버",
       "removeServer": "서버 제거",
       "serverName": "표시 이름",
       "nameHelp": "채팅 선택 메뉴에서 사용됩니다.",
-      "namePlaceholder": "예: 의학 문서",
+      "namePlaceholder": "예: 기업 문서",
       "apiBase": "API 기본 URL",
       "apiKey": "API 키",
       "apiKeyHelp": "필요하지 않은 경우 비워 두세요.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "참조",
       "includeChunkContent": "청크 콘텐츠 포함",
       "includeChunkContentLabel": "청크 콘텐츠",
-      "noServers": "구성된 지식 베이스가 없습니다.",
-      "deleteTitle": "지식 베이스 삭제",
-      "deleteDescription": "지식 베이스 목록에서 {{name}}을(를) 제거합니다.",
+      "noServers": "구성된 엔터프라이즈 지식 베이스가 없습니다.",
+      "deleteTitle": "엔터프라이즈 지식 베이스 삭제",
+      "deleteDescription": "엔터프라이즈 지식 베이스 목록에서 {{name}}을(를) 제거합니다.",
       "delete": "삭제"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "검색할 지식 베이스 선택",
         "selectedCount": "{{count}}개 선택됨",
         "none": "구성된 워크스페이스 없음",
-        "clear": "선택 지우기"
+        "clear": "선택 지우기",
+        "personal": "개인 지식 베이스",
+        "enterprise": "엔터프라이즈 지식 베이스"
       }
     },
     "scrollToBottom": "맨 아래로 스크롤",

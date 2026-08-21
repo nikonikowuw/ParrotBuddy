@@ -2943,6 +2943,74 @@ async def test_lightrag_file_proxy_resolves_server_from_tools_config(
     assert traversal_resp.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_lightrag_file_proxy_resolves_personal_server(
+    bus: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nanobot.agent.tools.lightrag import (
+        PERSONAL_KB_IDENTIFIER,
+        LightRagPersonalConfig,
+        LightRagToolConfig,
+    )
+
+    class _ToolsCfg:
+        lightrag = LightRagToolConfig(
+            personal=LightRagPersonalConfig(
+                api_base="http://127.0.0.1:9630",
+                api_key="personal-key",
+            )
+        )
+
+    class _RootCfg:
+        tools = _ToolsCfg()
+
+    gateway = _make_handler(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 29914,
+            "path": "/",
+            "websocketRequiresToken": False,
+        },
+        bus,
+        root_config=_RootCfg(),
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "application/pdf"}
+        content = b"PDFDATA"
+
+    class _FakeClient:
+        def __init__(self, *a: Any, **k: Any) -> None:
+            captured["kwargs"] = k
+
+        async def __aenter__(self) -> "_FakeClient":
+            return self
+
+        async def __aexit__(self, *a: Any) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: Any) -> _FakeResp:
+            captured["url"] = url
+            captured["headers"] = kwargs["headers"]
+            return _FakeResp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(*a, **k))
+
+    media = f"/api/lightrag/file/{PERSONAL_KB_IDENTIFIER}/notes.pdf"
+    req = _FakeReq(headers={"Host": "127.0.0.1:8765"}, path=media)
+    conn = _FakeConn(("127.0.0.1", 1234))
+    resp = await gateway.http._handle_lightrag_file(conn, req, media)
+
+    assert resp.status_code == 200
+    assert captured["url"] == "http://127.0.0.1:9630/documents/file/notes.pdf"
+    assert captured["headers"]["X-API-Key"] == "personal-key"
+
+
 async def test_lightrag_file_proxy_encodes_file_path_canonically(
     bus: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3040,14 +3108,16 @@ async def test_file_preview_falls_back_to_lightrag_document_when_not_in_workspac
     "file not found" while the same document opens fine in the Reference
     documents section."""
 
-    class _LightragServer:
-        name = "LightRAG"
-        api_base = "http://127.0.0.1:9623"
-        api_key = None
+    from nanobot.agent.tools.lightrag import (
+        PERSONAL_KB_IDENTIFIER,
+        LightRagPersonalConfig,
+        LightRagToolConfig,
+    )
 
     class _ToolsCfg:
-        lightrag = MagicMock()
-        lightrag.servers = [_LightragServer()]
+        lightrag = LightRagToolConfig(
+            personal=LightRagPersonalConfig(api_base="http://127.0.0.1:9623")
+        )
 
     class _RootCfg:
         tools = _ToolsCfg()
@@ -3070,7 +3140,9 @@ async def test_file_preview_falls_back_to_lightrag_document_when_not_in_workspac
         root_config=_RootCfg(),
     )
     gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
-    gateway.http.workspaces.persist_lightrag_workspaces("chat-kb", ["LightRAG"])
+    gateway.http.workspaces.persist_lightrag_workspaces(
+        "chat-kb", [PERSONAL_KB_IDENTIFIER]
+    )
 
     captured: dict[str, Any] = {}
 

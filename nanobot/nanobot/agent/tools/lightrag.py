@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, quote, urlsplit
 
 import httpx
 from loguru import logger
-from pydantic import Field
+from pydantic import AliasChoices, Field, model_validator
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import RequestContext, current_request_context
@@ -35,13 +35,31 @@ _QUERY_MODES = ("local", "global", "hybrid", "naive", "mix", "bypass")
 # Legacy UI sentinel from the single-server workspace contract. It is not a
 # valid multi-server routing key and is filtered out when resolving targets.
 _DEFAULT_SENTINEL = "__default__"
+# Built-in personal knowledge base identifier.
+PERSONAL_KB_IDENTIFIER = "__personal__"
+_PERSONAL_KB_SENTINEL = PERSONAL_KB_IDENTIFIER
 _SKIP_MESSAGE = "No knowledge base selected; recall skipped."
 _DISABLED_MESSAGE = "LightRAG knowledge base integration is disabled; recall skipped."
 
 
-def _server_error(name: str, message: str) -> ToolResult:
+def is_reserved_lightrag_server_name(
+    name: str,
+    personal_name: str | None = None,
+) -> bool:
+    """Return whether an enterprise name would collide with a built-in target."""
+    normalized = name.strip()
+    reserved = {PERSONAL_KB_IDENTIFIER}
+    if personal_name:
+        configured_name = personal_name.strip()
+        if configured_name:
+            reserved.add(configured_name)
+    return normalized in reserved
+
+
+def _server_error(name: str | None, message: str) -> ToolResult:
     """Build a per-server error section for fan-out results."""
-    return ToolResult.error(f"## Knowledge Base: {name}\n(error: {message})")
+    heading = f"## Knowledge Base: {name}" if name else "## Knowledge Base"
+    return ToolResult.error(f"{heading}\n(error: {message})")
 
 
 _MD_SPECIAL_RE = re.compile(r"[\\`*_{}\]#!|>+]")
@@ -149,7 +167,11 @@ def _bounded_text(value: Any) -> str | None:
     return value[:_MAX_REFERENCE_TEXT_CHARS] if value else None
 
 
-def _normalize_reference(reference: Any, server_name: str) -> dict[str, Any] | None:
+def _normalize_reference(
+    reference: Any,
+    server_name: str,
+    server_label: str | None = None,
+) -> dict[str, Any] | None:
     if not isinstance(reference, dict):
         return None
     file_path = _safe_document_path(reference.get("file_path") or reference.get("path"))
@@ -160,6 +182,8 @@ def _normalize_reference(reference: Any, server_name: str) -> dict[str, Any] | N
         "file_path": file_path,
         "server_name": server_name,
     }
+    if server_label and server_label != server_name:
+        normalized["server_label"] = server_label[:256]
     title = _bounded_text(reference.get("title") or reference.get("display_name"))
     if title:
         normalized["title"] = title
@@ -234,13 +258,23 @@ def _normalize_reference(reference: Any, server_name: str) -> dict[str, Any] | N
     return normalized
 
 
-def _normalize_references(references: Any, server_name: str) -> list[dict[str, Any]]:
+def _normalize_references(
+    references: Any,
+    server_name: str,
+    server_label: str | None = None,
+) -> list[dict[str, Any]]:
     if not isinstance(references, list):
         return []
     return [
         normalized
         for reference in references[:_MAX_REFERENCE_ITEMS]
-        if (normalized := _normalize_reference(reference, server_name)) is not None
+        if (
+            normalized := _normalize_reference(
+                reference,
+                server_name,
+                server_label,
+            )
+        ) is not None
     ]
 
 
@@ -303,6 +337,20 @@ def _config_loader_factory() -> Callable[[], LightRagToolConfig]:
     return load
 
 
+class LightRagPersonalConfig(Base):
+    """Configuration for the built-in personal knowledge base."""
+    enabled: bool = True
+    name: str | None = None  # Optional display-name override; UI localizes the default.
+    api_base: str = "http://127.0.0.1:9621"
+    api_key: str | None = None
+    default_query_mode: Literal["local", "global", "hybrid", "naive", "mix", "bypass"] = "mix"
+    default_top_k: int | None = Field(default=None, ge=1, le=100)
+    timeout: float = Field(default=60.0, gt=0)
+    proxy: str | None = None
+    include_references: bool = True
+    include_chunk_content: bool = False
+
+
 class LightRagServerConfig(Base):
     """Configuration for a single LightRAG knowledge base server."""
     name: str  # UI display name and routing primary key
@@ -319,8 +367,54 @@ class LightRagServerConfig(Base):
 class LightRagToolConfig(Base):
     """LightRAG retrieval tool configuration (multi-server)."""
     enabled: bool = False
-    servers: list[LightRagServerConfig] = Field(default_factory=list)
+    personal: LightRagPersonalConfig = Field(default_factory=LightRagPersonalConfig)
+    enterprise_servers: list[LightRagServerConfig] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("enterprise_servers", "enterpriseServers", "servers"),
+    )
     default_workspace: str | None = None  # CLI-only fallback
+
+    @model_validator(mode="after")
+    def _validate_enterprise_server_names(self) -> "LightRagToolConfig":
+        for server in self.enterprise_servers:
+            if is_reserved_lightrag_server_name(server.name, self.personal.name):
+                raise ValueError(f"enterprise server name is reserved: {server.name!r}")
+        return self
+
+    @property
+    def servers(self) -> list[LightRagServerConfig]:
+        """Backward-compatible alias for enterprise_servers."""
+        return self.enterprise_servers
+
+    @servers.setter
+    def servers(self, value: list[LightRagServerConfig]) -> None:
+        self.enterprise_servers = value
+
+
+def configured_lightrag_servers(
+    config: LightRagToolConfig,
+) -> list[LightRagServerConfig]:
+    """Return enterprise servers plus the enabled personal target."""
+    enterprise_servers = getattr(config, "enterprise_servers", None)
+    if not isinstance(enterprise_servers, list):
+        enterprise_servers = getattr(config, "servers", [])
+    servers = list(enterprise_servers or [])
+    personal = getattr(config, "personal", None)
+    if personal is not None and getattr(personal, "enabled", False) is True:
+        servers.append(
+            LightRagServerConfig(
+                name=PERSONAL_KB_IDENTIFIER,
+                api_base=personal.api_base,
+                api_key=personal.api_key,
+                default_query_mode=personal.default_query_mode,
+                default_top_k=personal.default_top_k,
+                timeout=personal.timeout,
+                proxy=personal.proxy,
+                include_references=personal.include_references,
+                include_chunk_content=personal.include_chunk_content,
+            )
+        )
+    return servers
 
 
 @tool_parameters(
@@ -441,12 +535,27 @@ class LightRagQueryTool(Tool):
             return None
         return RuntimeContextBlock(source="lightrag", content=content)
 
+    def _server_display_name(
+        self,
+        server: LightRagServerConfig,
+        config: LightRagToolConfig,
+    ) -> str | None:
+        if server.name == PERSONAL_KB_IDENTIFIER:
+            name = (config.personal.name or "").strip()
+            return name or None
+        return server.name
+
     def _targets_from_names(
         self,
         names: list[str],
         config: LightRagToolConfig,
     ) -> list[LightRagServerConfig]:
-        by_name = {server.name: server for server in config.servers}
+        by_name = {server.name: server for server in configured_lightrag_servers(config)}
+        personal_server = by_name.get(PERSONAL_KB_IDENTIFIER)
+        personal_name = (config.personal.name or "").strip()
+        if personal_server and personal_name:
+            by_name[personal_name] = personal_server
+
         targets: list[LightRagServerConfig] = []
         for name in names:
             server = by_name.get(name)
@@ -478,8 +587,12 @@ class LightRagQueryTool(Tool):
         return self._resolve_target_servers_for_request(current_request_context())
 
     def _scope_description(self, request: RequestContext | None) -> str:
+        config = self._get_live_config()
         targets = self._resolve_target_servers_for_request(request)
-        return ", ".join(server.name for server in targets)
+        return ", ".join(
+            self._server_display_name(server, config) or server.name
+            for server in targets
+        )
 
     def _format_server_section(
         self,
@@ -489,9 +602,12 @@ class LightRagQueryTool(Tool):
         api_base: str = "",
         api_key: str | None = None,
         references: list[dict[str, Any]] | None = None,
+        server_label: str | None = None,
     ) -> str:
         response = str(data.get("response") or "").strip()
-        lines = [f"## Knowledge Base: {server_name}"]
+        lines: list[str] = []
+        if server_label or server_name != PERSONAL_KB_IDENTIFIER:
+            lines.append(f"## Knowledge Base: {server_label or server_name}")
         if response:
             lines.append(response)
 
@@ -499,6 +615,7 @@ class LightRagQueryTool(Tool):
             references = _normalize_references(
                 data.get("references") if include_refs else None,
                 server_name,
+                server_label,
             )
         if include_refs:
             for i, ref in enumerate(references, 1):
@@ -568,10 +685,14 @@ class LightRagQueryTool(Tool):
         top_k: int | None,
         only_need_context: bool | None,
         include_references: bool | None,
+        server_label: str | None = None,
     ) -> ToolResult:
+        display_name = server_label or (
+            None if server.name == PERSONAL_KB_IDENTIFIER else server.name
+        )
         ok, err = validate_url_target(server.api_base, allow_loopback=True)
         if not ok:
-            return _server_error(server.name, f"invalid api_base - {err}")
+            return _server_error(display_name, f"invalid api_base - {err}")
 
         effective_mode = mode or server.default_query_mode
         inc_refs = server.include_references if include_references is None else include_references
@@ -612,19 +733,21 @@ class LightRagQueryTool(Tool):
                 r = await client.post(url, headers=headers, json=body)
                 if r.status_code != 200:
                     return _server_error(
-                        server.name,
+                        display_name,
                         f"query failed with {r.status_code} - {r.text[:100]}",
                     )
                 try:
                     data = r.json()
                 except Exception as exc:
-                    return _server_error(server.name, f"non-JSON - {exc}")
+                    return _server_error(display_name, f"non-JSON - {exc}")
                 if not isinstance(data, dict):
-                    return _server_error(server.name, "unexpected payload")
+                    return _server_error(display_name, "unexpected payload")
                 references = _normalize_references(
                     data.get("references") if inc_refs else None,
                     server.name,
+                    server_label,
                 )
+
                 result = ToolResult(
                     self._format_server_section(
                         server.name,
@@ -633,15 +756,19 @@ class LightRagQueryTool(Tool):
                         api_base=server.api_base,
                         api_key=server.api_key,
                         references=references,
+                        server_label=server_label,
                     )
                 )
                 return _attach_reference_evidence(result, references)
         except httpx.RequestError as exc:
             logger.warning("LightRAG query failed for {}: {}", server.name, exc)
-            return _server_error(server.name, f"request failed - {exc}")
+            return _server_error(display_name, f"request failed - {exc}")
         except Exception as exc:
             logger.warning("LightRAG query failed for {}: {}", server.name, exc)
-            return _server_error(server.name, f"unhandled internal exception - {exc}")
+            return _server_error(
+                display_name,
+                f"unhandled internal exception - {exc}",
+            )
 
     async def execute(
         self,
@@ -678,6 +805,7 @@ class LightRagQueryTool(Tool):
                     top_k,
                     only_need_context,
                     include_references,
+                    self._server_display_name(server, config),
                 )
                 for server in targets
             ),
@@ -688,8 +816,10 @@ class LightRagQueryTool(Tool):
         references: list[dict[str, Any]] = []
         for server, result in zip(targets, results):
             if isinstance(result, Exception):
+                server_label = self._server_display_name(server, config)
                 section = _server_error(
-                    server.name, f"unhandled internal exception - {result}"
+                    server_label,
+                    f"unhandled internal exception - {result}",
                 )
             else:
                 section = result

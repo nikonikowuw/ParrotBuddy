@@ -24,6 +24,8 @@ import { cn } from "@/lib/utils";
 export interface KnowledgeBaseMenuProps {
   /** Server names sourced from settings (config.tools.lightrag.servers). */
   options: string[];
+  /** Localized/display name for the built-in personal knowledge base. */
+  personalLabel?: string | null;
   /** Currently selected server names. */
   selected: string[];
   isHero: boolean;
@@ -37,6 +39,7 @@ export function KnowledgeBaseMenu({
   isHero,
   disabled,
   onChange,
+  personalLabel,
 }: KnowledgeBaseMenuProps) {
   const { t } = useTranslation();
   const interactive = !disabled && !!onChange;
@@ -59,6 +62,24 @@ export function KnowledgeBaseMenu({
     : t("thread.composer.knowledgeBase.selectedCount", {
         count: selected.length,
       });
+  const personalOptions = options.filter((name) => name === "__personal__");
+  const enterpriseOptions = options.filter((name) => name !== "__personal__");
+  const renderOption = (name: string) => {
+    const displayName =
+      name === "__personal__"
+        ? personalLabel?.trim() || t("thread.composer.knowledgeBase.personal")
+        : name;
+    return (
+      <DropdownMenuCheckboxItem
+        key={name}
+        checked={selected.includes(name)}
+        onCheckedChange={() => toggleNamed(name)}
+        onSelect={(e) => e.preventDefault()}
+      >
+        {displayName}
+      </DropdownMenuCheckboxItem>
+    );
+  };
 
   return (
     <DropdownMenu>
@@ -111,16 +132,22 @@ export function KnowledgeBaseMenu({
         <DropdownMenuSeparator />
         {options.length > 0 ? (
           <>
-            {options.map((name) => (
-              <DropdownMenuCheckboxItem
-                key={name}
-                checked={selected.includes(name)}
-                onCheckedChange={() => toggleNamed(name)}
-                onSelect={(e) => e.preventDefault()}
-              >
-                {name}
-              </DropdownMenuCheckboxItem>
-            ))}
+            {personalOptions.length > 0 ? (
+              <>
+                <DropdownMenuLabel>
+                  {personalLabel?.trim() || t("thread.composer.knowledgeBase.personal")}
+                </DropdownMenuLabel>
+                {personalOptions.map(renderOption)}
+              </>
+            ) : null}
+            {enterpriseOptions.length > 0 ? (
+              <>
+                <DropdownMenuLabel>
+                  {t("thread.composer.knowledgeBase.enterprise")}
+                </DropdownMenuLabel>
+                {enterpriseOptions.map(renderOption)}
+              </>
+            ) : null}
           </>
         ) : (
           <div className="px-2.5 py-1.5 text-[12px] text-muted-foreground">

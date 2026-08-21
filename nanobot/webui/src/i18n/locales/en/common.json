@@ -75,7 +75,7 @@
       "appearance": "Appearance",
       "models": "Models",
       "providers": "Providers",
-      "lightrag": "Knowledge Base",
+      "lightrag": "Enterprise Knowledge Base",
       "image": "Image",
       "voice": "Voice",
       "browser": "Web",
@@ -717,11 +717,11 @@
       "detailDescription": "Details for {{name}}."
     },
     "lightrag": {
-      "title": "LightRAG Knowledge Base",
-      "enable": "Enable Knowledge Base Integration",
-      "enableDesc": "Allow the agent to query configured LightRAG vector databases.",
+      "title": "Enterprise Knowledge Base",
+      "enable": "Enable Enterprise Knowledge Base",
+      "enableDesc": "Allow the agent to query configured enterprise LightRAG vector databases.",
       "enableLabel": "Enable",
-      "serversTitle": "Servers",
+      "serversTitle": "Enterprise Servers",
       "addServer": "Add Server",
       "newServer": "New Server",
       "removeServer": "Remove Server",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "References",
       "includeChunkContent": "Include chunk content",
       "includeChunkContentLabel": "Chunk content",
-      "noServers": "No knowledge bases configured.",
-      "deleteTitle": "Delete knowledge base",
-      "deleteDescription": "This removes {{name}} from the knowledge base list.",
+      "noServers": "No enterprise knowledge bases configured.",
+      "deleteTitle": "Delete enterprise knowledge base",
+      "deleteDescription": "This removes {{name}} from the enterprise knowledge base list.",
       "delete": "Delete"
     },
     "voice": {
@@ -1093,10 +1093,12 @@
       "knowledgeBase": {
         "ariaLabel": "Knowledge base selector",
         "label": "Knowledge base",
+        "personal": "Personal Knowledge Base",
+        "enterprise": "Enterprise KB",
         "default": "Default",
         "tooltip": "Select knowledge bases to recall from",
         "selectedCount": "{{count}} selected",
-        "none": "No workspaces configured",
+        "none": "No enterprise knowledge bases configured",
         "clear": "Clear selection"
       }
     },

@@ -75,7 +75,7 @@
       "appearance": "Aparência",
       "models": "Modelos",
       "providers": "Provedores",
-      "lightrag": "Base de conhecimento",
+      "lightrag": "Base de conhecimento empresarial",
       "image": "Imagem",
       "voice": "Voz",
       "browser": "Web",
@@ -717,17 +717,17 @@
       "detailDescription": "Detalhes de {{name}}."
     },
     "lightrag": {
-      "title": "Base de conhecimento LightRAG",
-      "enable": "Habilitar integração de base de conhecimento",
-      "enableDesc": "Permitir que o agente consulte bancos de dados vetoriais LightRAG configurados.",
+      "title": "Base de conhecimento empresarial",
+      "enable": "Habilitar base de conhecimento empresarial",
+      "enableDesc": "Permitir que o agente consulte bancos de dados vetoriais LightRAG empresariais configurados.",
       "enableLabel": "Habilitar",
-      "serversTitle": "Servidores",
+      "serversTitle": "Servidores empresariais",
       "addServer": "Adicionar servidor",
       "newServer": "Novo servidor",
       "removeServer": "Remover servidor",
       "serverName": "Nome de exibição",
       "nameHelp": "Usado no menu de seleção do chat.",
-      "namePlaceholder": "ex., Documentos médicos",
+      "namePlaceholder": "ex., Documentos empresariais",
       "apiBase": "URL base da API",
       "apiKey": "Chave de API",
       "apiKeyHelp": "Deixe em branco se não for necessário.",
@@ -743,9 +743,9 @@
       "includeReferencesLabel": "Referências",
       "includeChunkContent": "Incluir conteúdo dos blocos",
       "includeChunkContentLabel": "Conteúdo dos blocos",
-      "noServers": "Nenhuma base de conhecimento configurada.",
-      "deleteTitle": "Excluir base de conhecimento",
-      "deleteDescription": "Isso remove {{name}} da lista de bases de conhecimento.",
+      "noServers": "Nenhuma base de conhecimento empresarial configurada.",
+      "deleteTitle": "Excluir base de conhecimento empresarial",
+      "deleteDescription": "Isso remove {{name}} da lista de bases de conhecimento empresariais.",
       "delete": "Excluir"
     },
     "voice": {
@@ -1097,7 +1097,9 @@
         "tooltip": "Selecione as bases de conhecimento para recuperar",
         "selectedCount": "{{count}} selecionadas",
         "none": "Nenhum workspace configurado",
-        "clear": "Limpar seleção"
+        "clear": "Limpar seleção",
+        "personal": "Base de conhecimento pessoal",
+        "enterprise": "Base de conhecimento corporativa"
       }
     },
     "scrollToBottom": "Rolar para o final",

@@ -950,6 +950,19 @@ export async function updateTranscriptionSettings(
 export interface LightRagSettingsUpdate {
   enabled?: boolean;
   defaultWorkspace?: string | null;
+  enterprise_servers?: Array<{
+    name: string;
+    /** Pre-rename name so the backend can preserve stored fields on a rename. */
+    original_name?: string;
+    api_base: string;
+    api_key?: string | null;
+    default_query_mode?: string;
+    default_top_k?: number | null;
+    timeout?: number;
+    proxy?: string | null;
+    include_references?: boolean;
+    include_chunk_content?: boolean;
+  }>;
   servers?: Array<{
     name: string;
     /** Pre-rename name so the backend can preserve stored fields on a rename. */

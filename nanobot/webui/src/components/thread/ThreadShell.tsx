@@ -517,11 +517,21 @@ export function ThreadShell({
   );
 
   const lightragSettings = settingsSnapshot?.lightrag;
-  const knowledgeBaseOptions = useMemo(
-    () => (lightragSettings?.servers ? lightragSettings.servers.map((s) => s.name) : []),
-    [lightragSettings],
-  );
+  const knowledgeBaseOptions = useMemo(() => {
+    const options: string[] = [];
+    if (lightragSettings?.personal?.enabled) {
+      options.push("__personal__");
+    }
+    const servers = lightragSettings?.enterprise_servers ?? lightragSettings?.servers ?? [];
+    for (const server of servers) {
+      if (server.name && !options.includes(server.name)) {
+        options.push(server.name);
+      }
+    }
+    return options;
+  }, [lightragSettings]);
   const knowledgeBaseEnabled = !!lightragSettings?.enabled;
+  const personalKnowledgeBaseName = lightragSettings?.personal?.name;
 
   const refreshModelSettings = useCallback(async () => {
     try {
@@ -899,6 +909,7 @@ export function ThreadShell({
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           knowledgeBaseEnabled={knowledgeBaseEnabled}
           knowledgeBaseOptions={knowledgeBaseOptions}
+          personalKnowledgeBaseName={personalKnowledgeBaseName}
           selectedKnowledgeBases={selectedKnowledgeBases}
           onKnowledgeBasesChange={onKnowledgeBasesChange}
         />
@@ -937,6 +948,7 @@ export function ThreadShell({
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           knowledgeBaseEnabled={knowledgeBaseEnabled}
           knowledgeBaseOptions={knowledgeBaseOptions}
+          personalKnowledgeBaseName={personalKnowledgeBaseName}
           selectedKnowledgeBases={selectedKnowledgeBases}
           onKnowledgeBasesChange={onKnowledgeBasesChange}
         />
