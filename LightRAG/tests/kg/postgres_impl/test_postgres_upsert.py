@@ -190,7 +190,7 @@ async def test_upsert_text_chunks_tuple_order():
     assert len(rows) == 1
     row = rows[0]
     # SQL: (workspace, id, tokens, chunk_order_index, full_doc_id,
-    #        content, file_path, llm_cache_list, heading, sidecar,
+    #        content, file_path, llm_cache_list, heading, sidecar, media,
     #        create_time, update_time)
     assert row[0] == "test_ws"  # workspace
     assert row[1] == "chunk-1"  # id
@@ -206,6 +206,69 @@ async def test_upsert_text_chunks_tuple_order():
         "id": "img-1",
         "refs": [],
     }  # sidecar
+
+
+@pytest.mark.asyncio
+async def test_upsert_text_chunks_persists_media_metadata():
+    """Retrieved drawing metadata must survive PG text-chunk persistence."""
+    storage = make_storage(NameSpace.KV_STORE_TEXT_CHUNKS)
+    media = [
+        {
+            "type": "image",
+            "path": "README.assets/b2aaf634151b4706892693ffb43d9093.png",
+            "format": "png",
+        }
+    ]
+    data = {
+        "chunk-1": {
+            "tokens": 10,
+            "chunk_order_index": 0,
+            "full_doc_id": "doc-1",
+            "content": "LightRAG",
+            "file_path": "README.md",
+            "media": media,
+        }
+    }
+    await storage.upsert(data)
+
+    sql, rows = storage._captured[0]
+    assert "media" in sql.lower()
+    assert json.loads(rows[0][10]) == media
+
+
+@pytest.mark.asyncio
+async def test_get_by_ids_text_chunks_decodes_media_metadata():
+    """PG JSONB media payloads must be returned as a list for hydration."""
+    storage = make_storage(NameSpace.KV_STORE_TEXT_CHUNKS)
+    media = [
+        {
+            "type": "image",
+            "path": "README.assets/b2aaf634151b4706892693ffb43d9093.png",
+            "format": "png",
+        }
+    ]
+    storage.db.query = AsyncMock(
+        return_value=[
+            {
+                "id": "chunk-1",
+                "tokens": 10,
+                "content": "LightRAG",
+                "chunk_order_index": 0,
+                "full_doc_id": "doc-1",
+                "file_path": "README.md",
+                "llm_cache_list": "[]",
+                "heading": "{}",
+                "sidecar": "{}",
+                "media": json.dumps(media),
+                "create_time": 1,
+                "update_time": 2,
+            }
+        ]
+    )
+
+    result = await storage.get_by_ids(["chunk-1"])
+
+    assert result[0]["media"] == media
 
 
 @pytest.mark.asyncio
@@ -227,6 +290,7 @@ async def test_upsert_text_chunks_missing_heading_sidecar_defaults_to_empty_dict
     row = rows[0]
     assert json.loads(row[8]) == {}  # heading
     assert json.loads(row[9]) == {}  # sidecar
+    assert json.loads(row[10]) == []  # media
 
 
 @pytest.mark.asyncio
@@ -250,6 +314,7 @@ async def test_upsert_text_chunks_none_heading_sidecar_defaults_to_empty_dict():
     row = rows[0]
     assert json.loads(row[8]) == {}
     assert json.loads(row[9]) == {}
+    assert json.loads(row[10]) == []
 
 
 # ---------------------------------------------------------------------------

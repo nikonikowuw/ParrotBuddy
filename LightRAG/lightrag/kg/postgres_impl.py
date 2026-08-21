@@ -1567,10 +1567,11 @@ class PostgreSQLDB:
             )
 
     async def _migrate_text_chunks_add_heading_sidecar(self):
-        """Add heading and sidecar JSONB columns to LIGHTRAG_DOC_CHUNKS if missing."""
+        """Add heading, sidecar, and media JSONB columns to LIGHTRAG_DOC_CHUNKS if missing."""
         columns_to_add = [
             ("heading", "JSONB NULL DEFAULT '{}'::jsonb"),
             ("sidecar", "JSONB NULL DEFAULT '{}'::jsonb"),
+            ("media", "JSONB NULL DEFAULT '[]'::jsonb"),
         ]
         try:
             existing = await self.query(
@@ -1937,12 +1938,12 @@ class PostgreSQLDB:
                 f"PostgreSQL, Failed to migrate LIGHTRAG_DOC_STATUS content_hash field: {e}"
             )
 
-        # Migrate LIGHTRAG_DOC_CHUNKS to add heading / sidecar JSONB columns
+        # Migrate LIGHTRAG_DOC_CHUNKS to add heading / sidecar / media JSONB columns
         try:
             await self._migrate_text_chunks_add_heading_sidecar()
         except Exception as e:
             logger.error(
-                f"PostgreSQL, Failed to migrate LIGHTRAG_DOC_CHUNKS heading/sidecar fields: {e}"
+                f"PostgreSQL, Failed to migrate LIGHTRAG_DOC_CHUNKS heading/sidecar/media fields: {e}"
             )
 
     async def _migrate_create_full_entities_relations_tables(self):
@@ -2618,6 +2619,17 @@ class PGKVStorage(BaseKVStorage):
                 sidecar = {}
             response["sidecar"] = sidecar
 
+            # Parse media JSON string back to a list; normalize None/missing to []
+            media = response.get("media")
+            if isinstance(media, str):
+                try:
+                    media = json.loads(media)
+                except json.JSONDecodeError:
+                    media = []
+            if not isinstance(media, list):
+                media = []
+            response["media"] = media
+
             create_time = response.get("create_time", 0)
             update_time = response.get("update_time", 0)
             response["create_time"] = create_time
@@ -2755,7 +2767,7 @@ class PGKVStorage(BaseKVStorage):
             return ordered
 
         if results and is_namespace(self.namespace, NameSpace.KV_STORE_TEXT_CHUNKS):
-            # Parse llm_cache_list / heading / sidecar JSON strings for each result
+            # Parse llm_cache_list / heading / sidecar / media JSON strings for each result
             for result in results:
                 llm_cache_list = result.get("llm_cache_list", [])
                 if isinstance(llm_cache_list, str):
@@ -2784,6 +2796,17 @@ class PGKVStorage(BaseKVStorage):
                 if not isinstance(sidecar, dict):
                     sidecar = {}
                 result["sidecar"] = sidecar
+
+                # Parse media JSON string back to a list; normalize None/missing to []
+                media = result.get("media")
+                if isinstance(media, str):
+                    try:
+                        media = json.loads(media)
+                    except json.JSONDecodeError:
+                        media = []
+                if not isinstance(media, list):
+                    media = []
+                result["media"] = media
 
                 create_time = result.get("create_time", 0)
                 update_time = result.get("update_time", 0)
@@ -2945,7 +2968,7 @@ class PGKVStorage(BaseKVStorage):
             for i, (k, v) in enumerate(data.items(), start=1):
                 # Tuple order must match SQL: (workspace, id, tokens, chunk_order_index,
                 #   full_doc_id, content, file_path, llm_cache_list, heading, sidecar,
-                #   create_time, update_time)
+                #   media, create_time, update_time)
                 batch_values.append(
                     (
                         self.workspace,
@@ -2958,6 +2981,7 @@ class PGKVStorage(BaseKVStorage):
                         json.dumps(v.get("llm_cache_list", [])),
                         json.dumps(v.get("heading") or {}),
                         json.dumps(v.get("sidecar") or {}),
+                        json.dumps(v.get("media") or []),
                         current_time,
                         current_time,
                     )
@@ -8005,6 +8029,7 @@ TABLES = {
                     llm_cache_list JSONB NULL DEFAULT '[]'::jsonb,
                     heading JSONB NULL DEFAULT '{}'::jsonb,
                     sidecar JSONB NULL DEFAULT '{}'::jsonb,
+                    media JSONB NULL DEFAULT '[]'::jsonb,
                     create_time TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
                     update_time TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
 	                CONSTRAINT LIGHTRAG_DOC_CHUNKS_PK PRIMARY KEY (workspace, id)
@@ -8155,6 +8180,7 @@ SQL_TEMPLATES = {
                                 COALESCE(llm_cache_list, '[]'::jsonb) as llm_cache_list,
                                 COALESCE(heading, '{}'::jsonb) as heading,
                                 COALESCE(sidecar, '{}'::jsonb) as sidecar,
+                                COALESCE(media, '[]'::jsonb) as media,
                                 EXTRACT(EPOCH FROM create_time)::BIGINT as create_time,
                                 EXTRACT(EPOCH FROM update_time)::BIGINT as update_time
                                 FROM LIGHTRAG_DOC_CHUNKS WHERE workspace=$1 AND id=$2
@@ -8179,6 +8205,7 @@ SQL_TEMPLATES = {
                                   COALESCE(llm_cache_list, '[]'::jsonb) as llm_cache_list,
                                   COALESCE(heading, '{}'::jsonb) as heading,
                                   COALESCE(sidecar, '{}'::jsonb) as sidecar,
+                                  COALESCE(media, '[]'::jsonb) as media,
                                   EXTRACT(EPOCH FROM create_time)::BIGINT as create_time,
                                   EXTRACT(EPOCH FROM update_time)::BIGINT as update_time
                                    FROM LIGHTRAG_DOC_CHUNKS WHERE workspace=$1 AND id = ANY($2)
@@ -8286,8 +8313,8 @@ SQL_TEMPLATES = {
                                      """,
     "upsert_text_chunk": """INSERT INTO LIGHTRAG_DOC_CHUNKS (workspace, id, tokens,
                       chunk_order_index, full_doc_id, content, file_path, llm_cache_list,
-                      heading, sidecar, create_time, update_time)
-                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                      heading, sidecar, media, create_time, update_time)
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                       ON CONFLICT (workspace,id) DO UPDATE
                       SET tokens=EXCLUDED.tokens,
                       chunk_order_index=EXCLUDED.chunk_order_index,
@@ -8297,6 +8324,7 @@ SQL_TEMPLATES = {
                       llm_cache_list=EXCLUDED.llm_cache_list,
                       heading=EXCLUDED.heading,
                       sidecar=EXCLUDED.sidecar,
+                      media=EXCLUDED.media,
                       update_time = EXCLUDED.update_time
                      """,
     "upsert_full_entities": """INSERT INTO LIGHTRAG_FULL_ENTITIES (workspace, id, entity_names, count,
