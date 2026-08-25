@@ -5,7 +5,7 @@ import Text from '@/components/ui/Text'
 import Button from '@/components/ui/Button'
 import useLightragGraph from '@/hooks/useLightragGraph'
 import { useTranslation } from 'react-i18next'
-import { GitBranchPlus, Scissors, Lock } from 'lucide-react'
+import { GitBranchPlus, Scissors, Lock, MessageSquarePlus } from 'lucide-react'
 import EditablePropertyRow from './EditablePropertyRow'
 
 /**
@@ -265,6 +265,22 @@ const NodePropertiesView = ({ node, pipelineBusy }: { node: NodeType; pipelineBu
     useGraphStore.getState().triggerNodePrune(node.id)
   }
 
+  const handleChatWithEntity = () => {
+    const entityName = node.properties['entity_id'] || (node.labels && node.labels[0]) || String(node.id)
+    const payload = {
+      type: 'lightrag:chat_with_entity',
+      entity: {
+        id: node.id,
+        name: entityName,
+        description: node.properties['description'] || '',
+        properties: node.properties
+      }
+    }
+    if (typeof window !== 'undefined' && window.parent) {
+      window.parent.postMessage(payload, '*')
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex justify-between items-center">
@@ -284,6 +300,15 @@ const NodePropertiesView = ({ node, pipelineBusy }: { node: NodeType; pipelineBu
               <Lock className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             </Button>
           )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 border border-gray-400 hover:bg-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
+            onClick={handleChatWithEntity}
+            tooltip={t('graphPanel.propertiesView.node.chatWithEntity')}
+          >
+            <MessageSquarePlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          </Button>
           <Button
             size="icon"
             variant="ghost"

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Check,
-  ExternalLink,
   FileText,
   Loader2,
   Network,
@@ -92,6 +91,7 @@ interface LightRagEmbeddedViewProps {
   settings: SettingsPayload | null;
   tab: LightRagEmbeddedTab;
   theme: "light" | "dark";
+  onChatWithEntity?: (entity: { id: string | number; name: string; description?: string; properties?: Record<string, unknown> }, serverName?: string | null) => void;
 }
 
 /**
@@ -105,6 +105,7 @@ export function LightRagEmbeddedView({
   settings,
   tab,
   theme,
+  onChatWithEntity,
 }: LightRagEmbeddedViewProps) {
   const { t, i18n } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -201,10 +202,37 @@ export function LightRagEmbeddedView({
     setRetryCount((c) => c + 1);
   }, []);
 
-  const handleOpenExternal = useCallback(() => {
-    if (!iframeUrl) return;
-    window.open(iframeUrl, "_blank", "noopener,noreferrer");
-  }, [iframeUrl]);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    if (!onChatWithEntity) return;
+
+    function onWindowMessage(event: MessageEvent) {
+      // Validate that the message came from our embedded iframe
+      if (
+        iframeRef.current?.contentWindow &&
+        event.source !== iframeRef.current.contentWindow
+      ) {
+        return;
+      }
+
+      const data = event.data;
+      if (
+        data &&
+        typeof data === "object" &&
+        data.type === "lightrag:chat_with_entity" &&
+        data.entity &&
+        typeof data.entity.name === "string"
+      ) {
+        onChatWithEntity?.(data.entity, selectedName);
+      }
+    }
+
+    window.addEventListener("message", onWindowMessage);
+    return () => {
+      window.removeEventListener("message", onWindowMessage);
+    };
+  }, [onChatWithEntity, selectedName]);
 
   if (!server || !iframeUrl) {
     return (
@@ -293,21 +321,11 @@ export function LightRagEmbeddedView({
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={tx("lightragEmbedded.openExternal", "Open in new tab")}
-            title={tx("lightragEmbedded.openExternal", "Open in new tab")}
-            onClick={handleOpenExternal}
-            className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Button>
         </div>
       </div>
       <div className="relative min-h-0 flex-1 bg-background">
         <iframe
+          ref={iframeRef}
           key={frameKey}
           src={iframeUrl}
           title={`${server.label ?? server.name} — LightRAG`}
@@ -331,15 +349,6 @@ export function LightRagEmbeddedView({
               className="h-7 rounded-full px-3 text-[12px]"
             >
               {tx("lightragEmbedded.retry", "Retry")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleOpenExternal}
-              className="h-7 rounded-full px-3 text-[12px]"
-            >
-              {tx("lightragEmbedded.openExternal", "Open in new tab")}
             </Button>
           </div>
         ) : null}

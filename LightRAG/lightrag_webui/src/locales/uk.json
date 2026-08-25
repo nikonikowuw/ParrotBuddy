@@ -357,6 +357,7 @@
         "degree": "Ступінь",
         "properties": "Властивості",
         "relationships": "Відношення (в межах підграфа)",
+        "chatWithEntity": "Чат із цією сутністю в Nanobot",
         "expandNode": "Розширити вузол",
         "pruneNode": "Приховати вузол",
         "deleteAllNodesError": "Відмова видалити всі вузли в графі",

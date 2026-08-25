@@ -357,6 +357,7 @@
         "degree": "차수",
         "properties": "속성",
         "relationships": "관계(하위 그래프 내)",
+        "chatWithEntity": "Nanobot에서 이 엔티티와 대화",
         "expandNode": "노드 확장",
         "pruneNode": "노드 숨기기",
         "deleteAllNodesError": "그래프의 모든 노드 삭제 실패",

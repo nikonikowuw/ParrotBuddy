@@ -143,7 +143,10 @@ interface ThreadShellProps {
   onToggleSidebar: () => void;
   onGoHome?: () => void;
   onNewChat?: () => void;
-  onCreateChat?: (workspaceScope?: WorkspaceScopePayload | null) => Promise<string | null>;
+  onCreateChat?: (
+    workspaceScope?: WorkspaceScopePayload | null,
+    knowledgeBases?: string[] | null,
+  ) => Promise<string | null>;
   onForkChat?: (sourceChatId: string, beforeUserIndex: number) => Promise<string | null>;
   onTurnEnd?: () => void;
   theme?: "light" | "dark";
@@ -163,6 +166,7 @@ interface ThreadShellProps {
   settingsSnapshot?: SettingsPayload | null;
   onOpenModelSettings?: () => void;
   skills?: SkillSummary[];
+  initialDraftText?: string | null;
 }
 
 function toModelBadgeLabel(modelName: string | null): string | null {
@@ -350,6 +354,7 @@ export function ThreadShell({
   settingsSnapshot = null,
   onOpenModelSettings,
   skills = [],
+  initialDraftText = null,
 }: ThreadShellProps) {
   const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
@@ -720,7 +725,7 @@ export function ThreadShell({
         options: withLightragWorkspaces(withWorkspaceScope(options)),
       };
       setPendingFirstTargetChatId(null);
-      const newId = await onCreateChat?.(workspaceScope);
+      const newId = await onCreateChat?.(workspaceScope, selectedKnowledgeBases);
       if (!newId) {
         pendingFirstRef.current = null;
         setPendingFirstTargetChatId(null);
@@ -740,7 +745,7 @@ export function ThreadShell({
         setBooting(false);
       }, CHAT_BOOT_TIMEOUT_MS);
     },
-    [booting, clearBootTimeout, onCreateChat, withLightragWorkspaces, withWorkspaceScope, workspaceScope],
+    [booting, clearBootTimeout, onCreateChat, selectedKnowledgeBases, withLightragWorkspaces, withWorkspaceScope, workspaceScope],
   );
 
   const handleThreadSend = useCallback(
@@ -906,6 +911,7 @@ export function ThreadShell({
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           pendingQueueKey={chatId}
+          initialDraftText={initialDraftText}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           knowledgeBaseEnabled={knowledgeBaseEnabled}
           knowledgeBaseOptions={knowledgeBaseOptions}
@@ -945,6 +951,8 @@ export function ThreadShell({
           workspaceScopeDisabled={workspaceScopeDisabled}
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
+          pendingQueueKey={null}
+          initialDraftText={initialDraftText}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
           knowledgeBaseEnabled={knowledgeBaseEnabled}
           knowledgeBaseOptions={knowledgeBaseOptions}

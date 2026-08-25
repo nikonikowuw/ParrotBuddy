@@ -357,6 +357,7 @@
         "degree": "Grad",
         "properties": "Eigenschaften",
         "relationships": "Beziehungen (innerhalb des Teilgraphen)",
+        "chatWithEntity": "Mit dieser Entität in Nanobot chatten",
         "expandNode": "Knoten erweitern",
         "pruneNode": "Knoten ausblenden",
         "deleteAllNodesError": "Löschen aller Knoten im Graph verweigert",

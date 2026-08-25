@@ -357,6 +357,7 @@
         "degree": "次数",
         "properties": "プロパティ",
         "relationships": "関係（サブグラフ内）",
+        "chatWithEntity": "Nanobot でこのエンティティとチャット",
         "expandNode": "ノードを展開",
         "pruneNode": "ノードを非表示",
         "deleteAllNodesError": "グラフ内のすべてのノードを削除することを拒否します",

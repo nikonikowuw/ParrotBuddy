@@ -2190,4 +2190,16 @@ describe("ThreadComposer", () => {
     });
   });
 
+  it("pre-fills initialDraftText and sets selection range when provided", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        initialDraftText="Quantum Computing"
+        pendingQueueKey="chat-new"
+      />,
+    );
+    const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Quantum Computing");
+  });
 });

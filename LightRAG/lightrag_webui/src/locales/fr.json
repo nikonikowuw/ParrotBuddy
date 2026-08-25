@@ -357,6 +357,7 @@
         "degree": "Degré",
         "properties": "Propriétés",
         "relationships": "Relations(dans le sous-graphe)",
+        "chatWithEntity": "Discuter avec cette entité dans Nanobot",
         "expandNode": "Développer le nœud",
         "pruneNode": "Masquer le nœud",
         "deleteAllNodesError": "Refus de supprimer tous les nœuds du graphe",

@@ -357,6 +357,7 @@
         "degree": "Bậc",
         "properties": "Thuộc Tính",
         "relationships": "Quan Hệ (trong đồ thị con)",
+        "chatWithEntity": "Trò chuyện với thực thể này trong Nanobot",
         "expandNode": "Mở Rộng Nút",
         "pruneNode": "Ẩn Nút",
         "deleteAllNodesError": "Từ chối xóa tất cả các nút trong đồ thị",

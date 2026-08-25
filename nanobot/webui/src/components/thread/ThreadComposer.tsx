@@ -251,6 +251,7 @@ interface ThreadComposerProps {
   workspaceError?: string | null;
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   pendingQueueKey?: string | null;
+  initialDraftText?: string | null;
   transcriptionProvider?: string | null;
   /** LightRAG knowledge-base (workspace) selector. */
   knowledgeBaseEnabled?: boolean;
@@ -881,6 +882,7 @@ export function ThreadComposer({
   workspaceError = null,
   onWorkspaceScopeChange,
   pendingQueueKey = null,
+  initialDraftText = null,
   transcriptionProvider = null,
   knowledgeBaseEnabled = false,
   knowledgeBaseOptions = [],
@@ -889,7 +891,7 @@ export function ThreadComposer({
   onKnowledgeBasesChange,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => initialDraftText ?? "");
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -906,6 +908,7 @@ export function ThreadComposer({
   // Only the prompt queued by the immediately preceding Enter can use the second-Enter shortcut.
   const secondEnterPromptIdRef = useRef<string | null>(null);
   const draggedQueuedPromptIdRef = useRef<string | null>(null);
+  const previousInitialDraftTextRef = useRef(initialDraftText);
   const previousPendingQueueKeyRef = useRef(pendingQueueKey);
   const wasStreamingRef = useRef(isStreaming);
   const skipNextQueuedFlushRef = useRef(false);
@@ -1304,22 +1307,30 @@ export function ThreadComposer({
 
   // Runs before paint so switching sessions never flashes stale draft text.
   useLayoutEffect(() => {
-    if (previousPendingQueueKeyRef.current === pendingQueueKey) return;
+    const queueKeyChanged = previousPendingQueueKeyRef.current !== pendingQueueKey;
+    const initialDraftChanged = previousInitialDraftTextRef.current !== initialDraftText;
+    if (!queueKeyChanged && !initialDraftChanged) return;
     previousPendingQueueKeyRef.current = pendingQueueKey;
+    previousInitialDraftTextRef.current = initialDraftText;
     secondEnterPromptIdRef.current = null;
-    setValue("");
+    const initialText = initialDraftText ?? "";
+    setValue(initialText);
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
-    setCursorPosition(0);
+    setCursorPosition(initialText.length);
     clear();
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+      if (initialText) {
+        el.focus();
+        el.setSelectionRange(initialText.length, initialText.length);
+      }
     });
-  }, [clear, pendingQueueKey]);
+  }, [clear, initialDraftText, pendingQueueKey]);
 
   const appendTranscription = useCallback((text: string) => {
     const transcript = text.trim();

@@ -357,6 +357,7 @@
         "degree": "الدرجة",
         "properties": "الخصائص",
         "relationships": "العلاقات (داخل الرسم الفرعي)",
+        "chatWithEntity": "الدردشة مع هذا الكيان في Nanobot",
         "expandNode": "توسيع العقدة",
         "pruneNode": "إخفاء العقدة",
         "deleteAllNodesError": "رفض حذف جميع العقد في الرسم البياني",

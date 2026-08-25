@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LightRagEmbeddedView, toLightRagLanguage } from "@/components/lightrag/LightRagEmbeddedView";
 import i18n from "@/i18n";
@@ -189,5 +189,73 @@ describe("LightRagEmbeddedView", () => {
       screen.getByText(/No LightRAG server is configured/),
     ).toBeInTheDocument();
     expect(screen.queryByTitle(/LightRAG/)).not.toBeInTheDocument();
+  });
+
+  it("calls onChatWithEntity when window receives lightrag:chat_with_entity message from the iframe", () => {
+    const onChatWithEntity = vi.fn();
+    const { container } = render(
+      <LightRagEmbeddedView
+        settings={TWO_SERVERS}
+        tab="knowledge-graph"
+        theme="light"
+        onChatWithEntity={onChatWithEntity}
+      />,
+    );
+
+    const iframe = container.querySelector("iframe");
+    const iframeWindow = iframe?.contentWindow ?? window;
+
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframeWindow,
+        data: {
+          type: "lightrag:chat_with_entity",
+          entity: {
+            id: "node-1",
+            name: "Quantum Computing",
+            description: "A field of computing",
+          },
+        },
+      }),
+    );
+
+    expect(onChatWithEntity).toHaveBeenCalledTimes(1);
+    expect(onChatWithEntity).toHaveBeenCalledWith(
+      {
+        id: "node-1",
+        name: "Quantum Computing",
+        description: "A field of computing",
+      },
+      "docs",
+    );
+  });
+
+  it("ignores lightrag:chat_with_entity messages from other sources", () => {
+    const onChatWithEntity = vi.fn();
+    render(
+      <LightRagEmbeddedView
+        settings={TWO_SERVERS}
+        tab="knowledge-graph"
+        theme="light"
+        onChatWithEntity={onChatWithEntity}
+      />,
+    );
+
+    // Dispatch message with foreign/fake source
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: {} as Window,
+        data: {
+          type: "lightrag:chat_with_entity",
+          entity: {
+            id: "node-1",
+            name: "Quantum Computing",
+            description: "A field of computing",
+          },
+        },
+      }),
+    );
+
+    expect(onChatWithEntity).not.toHaveBeenCalled();
   });
 });

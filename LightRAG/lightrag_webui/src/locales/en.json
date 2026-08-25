@@ -359,6 +359,7 @@
         "degree": "Degree",
         "properties": "Properties",
         "relationships": "Relations(within subgraph)",
+        "chatWithEntity": "Chat with this entity in Nanobot",
         "expandNode": "Expand Node",
         "pruneNode": "Hide Node",
         "deleteAllNodesError": "Refuse to delete all nodes in the graph",

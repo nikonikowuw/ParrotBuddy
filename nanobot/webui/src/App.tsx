@@ -1061,6 +1061,7 @@ function Shell({
   const [draftKnowledgeBases, setDraftKnowledgeBases] = useState<string[]>([]);
   const [knowledgeBasesOverrides, setKnowledgeBasesOverrides] =
     useState<Record<string, string[]>>({});
+  const [pendingComposerDraftText, setPendingComposerDraftText] = useState<string | null>(null);
   const runningChatIdsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef<string | null>(null);
   /** Keys of chats created in this session that may briefly be missing from
@@ -1092,10 +1093,6 @@ function Shell({
       setView(route.view);
       setSettingsInitialSection(route.settingsSection);
       setWorkspaceError(null);
-      if (route.view === "chat" && !route.activeKey) {
-        setDraftWorkspaceScope(null);
-        setDraftKnowledgeBases([]);
-      }
     };
     window.addEventListener("hashchange", applyRoute);
     return () => window.removeEventListener("hashchange", applyRoute);
@@ -1454,48 +1451,55 @@ function Shell({
     [activeChatId, activeChatRunning, client],
   );
 
-  const onCreateChat = useCallback(async (workspaceScope?: WorkspaceScopePayload | null) => {
-    try {
-      const scope = workspaceScope ?? activeWorkspaceScope;
-      const chatId = await createChat(scope);
-      const key = `websocket:${chatId}`;
-      // Protect the freshly-created chat from the activeKey fallback above for a
-      // short grace window: a stale listSessions response that still predates
-      // this chat must not kick the user back to the hero screen and strand the
-      // hero composer's booting state.
-      recentlyCreatedChatKeysRef.current.add(key);
-      if (createdChatProtectTimerRef.current !== null) {
-        window.clearTimeout(createdChatProtectTimerRef.current);
+  const onCreateChat = useCallback(
+    async (
+      workspaceScope?: WorkspaceScopePayload | null,
+      knowledgeBases?: string[] | null,
+    ) => {
+      try {
+        const scope = workspaceScope ?? activeWorkspaceScope;
+        const chatId = await createChat(scope);
+        const key = `websocket:${chatId}`;
+        // Protect the freshly-created chat from the activeKey fallback above for a
+        // short grace window: a stale listSessions response that still predates
+        // this chat must not kick the user back to the hero screen and strand the
+        // hero composer's booting state.
+        recentlyCreatedChatKeysRef.current.add(key);
+        if (createdChatProtectTimerRef.current !== null) {
+          window.clearTimeout(createdChatProtectTimerRef.current);
+        }
+        createdChatProtectTimerRef.current = window.setTimeout(() => {
+          createdChatProtectTimerRef.current = null;
+          recentlyCreatedChatKeysRef.current.clear();
+        }, CREATED_CHAT_PROTECT_MS);
+        navigate({
+          view: "chat",
+          activeKey: key,
+          settingsSection: "overview",
+        });
+        setMobileSidebarOpen(false);
+        if (scope) {
+          setWorkspaceOverrides((current) => ({
+            ...current,
+            [chatId]: normalizeWorkspaceScope(scope),
+          }));
+        }
+        const kbs = knowledgeBases ?? activeKnowledgeBases;
+        if (kbs.length > 0) {
+          setKnowledgeBasesOverrides((current) => ({ ...current, [chatId]: kbs }));
+          client.setLightragWorkspaces(chatId, kbs);
+        }
+        return chatId;
+      } catch (e) {
+        console.error("Failed to create chat", e);
+        if (e instanceof Error && e.message.startsWith("workspace_scope_rejected:")) {
+          setWorkspaceError(t("errors.workspaceScopeRejected.body"));
+        }
+        return null;
       }
-      createdChatProtectTimerRef.current = window.setTimeout(() => {
-        createdChatProtectTimerRef.current = null;
-        recentlyCreatedChatKeysRef.current.clear();
-      }, CREATED_CHAT_PROTECT_MS);
-      navigate({
-        view: "chat",
-        activeKey: key,
-        settingsSection: "overview",
-      });
-      setMobileSidebarOpen(false);
-      if (scope) {
-        setWorkspaceOverrides((current) => ({
-          ...current,
-          [chatId]: normalizeWorkspaceScope(scope),
-        }));
-      }
-      const kbs = activeKnowledgeBases;
-      if (kbs.length > 0) {
-        setKnowledgeBasesOverrides((current) => ({ ...current, [chatId]: kbs }));
-      }
-      return chatId;
-    } catch (e) {
-      console.error("Failed to create chat", e);
-      if (e instanceof Error && e.message.startsWith("workspace_scope_rejected:")) {
-        setWorkspaceError(t("errors.workspaceScopeRejected.body"));
-      }
-      return null;
-    }
-  }, [activeWorkspaceScope, activeKnowledgeBases, createChat, navigate, t]);
+    },
+    [activeWorkspaceScope, activeKnowledgeBases, client, createChat, navigate, t],
+  );
 
   const onForkChat = useCallback(async (
     sourceChatId: string,
@@ -1525,6 +1529,7 @@ function Shell({
   }, [forkChat, navigate, sessions, sidebarState.title_overrides, t]);
 
   const onNewChat = useCallback(() => {
+    setPendingComposerDraftText(null);
     navigate(defaultShellRoute());
     setDraftWorkspaceScope(null);
     setDraftKnowledgeBases([]);
@@ -1533,8 +1538,42 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [navigate]);
 
+  const handleChatWithEntity = useCallback(
+    (
+      entity: { id: string | number; name: string; description?: string; properties?: Record<string, unknown> },
+      serverName?: string | null,
+    ) => {
+      // Resolve the target knowledge base server name (fall back to localStorage selection or default)
+      let targetServer = serverName;
+      if (!targetServer && typeof window !== "undefined") {
+        try {
+          targetServer = window.localStorage.getItem("nanobot-webui.lightrag-embedded-server");
+        } catch {
+          // ignore
+        }
+      }
+      if (!targetServer) {
+        targetServer = settingsSnapshot?.lightrag?.default_workspace ?? null;
+      }
+      if (!targetServer && settingsSnapshot?.lightrag?.personal?.enabled) {
+        targetServer = "__personal__";
+      }
+
+      const selectedBases = targetServer ? [targetServer] : [];
+      setDraftWorkspaceScope(null);
+      setDraftKnowledgeBases(selectedBases);
+      setPendingComposerDraftText(entity.name);
+      setWorkspaceError(null);
+      setSessionSearchOpen(false);
+      setMobileSidebarOpen(false);
+      navigate(defaultShellRoute());
+    },
+    [navigate, settingsSnapshot?.lightrag],
+  );
+
   const onNewChatInProject = useCallback(
     (projectPath: string, projectName: string) => {
+      setPendingComposerDraftText(null);
       const base = workspaces?.default_scope ?? activeWorkspaceScope;
       const trimmed = projectPath.trim();
       if (!base || !trimmed) {
@@ -1556,6 +1595,7 @@ function Shell({
 
   const onSelectChat = useCallback(
     (key: string) => {
+      setPendingComposerDraftText(null);
       const selected = sessions.find((session) => session.key === key);
       const selectedChatId = selected?.chatId;
       if (selectedChatId) {
@@ -2259,6 +2299,7 @@ function Shell({
                 settingsSnapshot={settingsSnapshot}
                 onOpenModelSettings={onOpenModelSettings}
                 skills={skills}
+                initialDraftText={pendingComposerDraftText}
               />
             </div>
             {(view === "documents" || view === "knowledge-graph") && (
@@ -2267,6 +2308,7 @@ function Shell({
                   settings={settingsSnapshot}
                   tab={view as LightRagEmbeddedTab}
                   theme={theme}
+                  onChatWithEntity={handleChatWithEntity}
                 />
               </div>
             )}
