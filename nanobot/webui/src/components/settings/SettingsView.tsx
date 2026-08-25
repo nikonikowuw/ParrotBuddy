@@ -98,6 +98,7 @@ import { isLoopbackHost } from "@/lib/network";
 import {
   checkVersion,
   createModelConfiguration,
+  deleteModelConfiguration,
   disableNanobotFeature,
   enableNanobotFeature,
   fetchApiService,
@@ -557,6 +558,9 @@ export function SettingsView({
     provider: "",
     model: "",
   });
+  const [modelConfigurationPendingDelete, setModelConfigurationPendingDelete] =
+    useState<SettingsPayload["model_presets"][number] | null>(null);
+  const [modelConfigurationDeleting, setModelConfigurationDeleting] = useState(false);
   const [cliAppsAction, setCliAppsAction] = useState<string | null>(null);
   const [nanobotFeatureAction, setNanobotFeatureAction] = useState<string | null>(null);
   const [nanobotFeatureConfirm, setNanobotFeatureConfirm] = useState<NanobotFeatureInfo | null>(null);
@@ -1089,6 +1093,22 @@ export function SettingsView({
       setError((err as Error).message);
     } finally {
       setModelConfigurationSaving(false);
+    }
+  };
+
+  const handleDeleteModelConfiguration = async (preset: SettingsPayload["model_presets"][number]) => {
+    if (modelConfigurationDeleting) return;
+    setModelConfigurationDeleting(true);
+    try {
+      const payload = await deleteModelConfiguration(token, preset.name);
+      applyPayload(payload);
+      onModelNameChange(payload.agent.model || null);
+      setModelConfigurationPendingDelete(null);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setModelConfigurationDeleting(false);
     }
   };
 
@@ -1650,6 +1670,7 @@ export function SettingsView({
               onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
               onSave={saveModelSettings}
               onCreateConfiguration={openModelConfigurationDialog}
+              onRequestDeleteConfiguration={setModelConfigurationPendingDelete}
             />
             <ProvidersSettings
               settings={settings}
@@ -1918,6 +1939,15 @@ export function SettingsView({
         onOpenChange={setModelConfigurationOpen}
         onChangeDraft={setModelConfigurationForm}
         onSave={handleCreateModelConfiguration}
+      />
+
+      <ModelConfigurationDeleteDialog
+        preset={modelConfigurationPendingDelete}
+        deleting={modelConfigurationDeleting}
+        onOpenChange={(open) => {
+          if (!open && !modelConfigurationDeleting) setModelConfigurationPendingDelete(null);
+        }}
+        onConfirm={handleDeleteModelConfiguration}
       />
 
       <NanobotFeatureInstallDialog
@@ -2623,6 +2653,64 @@ function NewModelConfigurationDialog({
   );
 }
 
+function ModelConfigurationDeleteDialog({
+  preset,
+  deleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  preset: SettingsPayload["model_presets"][number] | null;
+  deleting: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: (preset: SettingsPayload["model_presets"][number]) => void | Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+  const name = preset?.label || preset?.name || "";
+  return (
+    <Dialog open={Boolean(preset)} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(calc(100vw-2rem),26rem)] rounded-[26px]">
+        <DialogHeader>
+          <DialogTitle>{tx("settings.models.deleteTitle", "Delete model configuration")}</DialogTitle>
+          <DialogDescription>
+            {tx(
+              "settings.models.deleteDescription",
+              "This removes {{name}} from saved model configurations.",
+              { name },
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-4 flex flex-row items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-full"
+            disabled={deleting}
+            onClick={() => onOpenChange(false)}
+          >
+            {tx("settings.actions.cancel", "Cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            className="rounded-full"
+            disabled={!preset || deleting}
+            onClick={() => preset && onConfirm(preset)}
+          >
+            {deleting ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            {deleting
+              ? tx("settings.actions.saving", "Saving...")
+              : tx("settings.actions.delete", "Delete")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CapabilityInstallNotice({
   title,
   description,
@@ -2659,6 +2747,7 @@ function ModelsSettings({
   onProviderOAuthLogin,
   onSave,
   onCreateConfiguration,
+  onRequestDeleteConfiguration,
 }: {
   token: string;
   form: AgentSettingsDraft;
@@ -2671,6 +2760,7 @@ function ModelsSettings({
   onProviderOAuthLogin: (provider: string) => void;
   onSave: () => void;
   onCreateConfiguration: () => void;
+  onRequestDeleteConfiguration?: (preset: SettingsPayload["model_presets"][number]) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -2726,6 +2816,7 @@ function ModelsSettings({
                 }));
               }}
               onCreateConfiguration={onCreateConfiguration}
+              onRequestDelete={onRequestDeleteConfiguration}
             />
           </SettingsRow>
           {selectedPreset && !selectedPreset.is_default ? (
@@ -2733,13 +2824,27 @@ function ModelsSettings({
               title={tx("settings.models.configurationName", "Configuration name")}
               description={tx("settings.models.configurationNameHelp", "Rename this saved model configuration.")}
             >
-              <Input
-                value={form.presetLabel}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, presetLabel: event.target.value }))
-                }
-                className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  value={form.presetLabel}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, presetLabel: event.target.value }))
+                  }
+                  className="h-8 w-[min(280px,70vw)] rounded-full text-[13px]"
+                />
+                {onRequestDeleteConfiguration ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onRequestDeleteConfiguration(selectedPreset)}
+                    className="h-8 w-8 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={tx("settings.models.deleteConfiguration", "Delete configuration")}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
             </SettingsRow>
           ) : null}
           <SettingsRow
@@ -8133,6 +8238,7 @@ function ModelPresetPicker({
   showProviderLogos,
   onChange,
   onCreateConfiguration,
+  onRequestDelete,
 }: {
   presets: SettingsPayload["model_presets"];
   value: string;
@@ -8143,6 +8249,7 @@ function ModelPresetPicker({
   showProviderLogos: boolean;
   onChange: (preset: string) => void;
   onCreateConfiguration: () => void;
+  onRequestDelete?: (preset: SettingsPayload["model_presets"][number]) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -8187,25 +8294,48 @@ function ModelPresetPicker({
         {presets.map((preset) => {
           const selected = preset.name === value;
           return (
-            <DropdownMenuItem
+            <div
               key={preset.name}
-              onSelect={() => onChange(preset.name)}
               className={cn(
-                "flex cursor-default items-center justify-between gap-3 rounded-[12px] px-2.5 py-2 text-[13px]",
-                "focus:bg-muted/85 focus:text-foreground",
-                selected && "bg-muted/80 text-foreground focus:bg-muted",
+                "group flex items-center justify-between gap-1 rounded-[12px] pr-1.5",
+                selected && "bg-muted/80 text-foreground",
               )}
             >
-              <ModelPresetOptionContent
-                preset={preset}
-                settings={settings}
-                draftModel={draftModel}
-                draftProvider={draftProvider}
-                useDraft={selected && preset.is_default}
-                showProviderLogos={showProviderLogos}
-              />
-              {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-            </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => onChange(preset.name)}
+                className={cn(
+                  "flex min-w-0 flex-1 cursor-default items-center justify-between gap-3 rounded-[10px] px-2.5 py-2 text-[13px]",
+                  "focus:bg-muted/85 focus:text-foreground",
+                  selected && "focus:bg-muted",
+                )}
+              >
+                <ModelPresetOptionContent
+                  preset={preset}
+                  settings={settings}
+                  draftModel={draftModel}
+                  draftProvider={draftProvider}
+                  useDraft={selected && preset.is_default}
+                  showProviderLogos={showProviderLogos}
+                />
+                {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+              </DropdownMenuItem>
+              {!preset.is_default && onRequestDelete ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRequestDelete(preset);
+                  }}
+                  className="h-7 w-7 shrink-0 rounded-full text-muted-foreground opacity-70 hover:bg-destructive/10 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
+                  aria-label={tx("settings.models.deleteConfiguration", "Delete configuration")}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                </Button>
+              ) : null}
+            </div>
           );
         })}
         <div className="mt-1 border-t border-border/55 pt-1">

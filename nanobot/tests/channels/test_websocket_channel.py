@@ -2256,6 +2256,19 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert duplicate_preset.status_code == 409
 
+        deleted_preset = await _http_get(
+            "http://127.0.0.1:"
+            f"{port}/api/settings/model-configurations/delete"
+            "?name=fast-writing",
+            headers={"Authorization": "Bearer tok"},
+        )
+        assert deleted_preset.status_code == 200
+        deleted_preset_body = deleted_preset.json()
+        assert deleted_preset_body["agent"]["model_preset"] == "default"
+        assert "fast-writing" not in [
+            p["name"] for p in deleted_preset_body["model_presets"]
+        ]
+
         search_updated = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/web-search/update?provider=searxng"
@@ -2336,10 +2349,8 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         saved = load_config(config_path)
         assert saved.agents.defaults.model == "atomic_chat/test"
         assert saved.agents.defaults.provider == "atomic_chat"
-        assert saved.agents.defaults.model_preset == "fast-writing"
-        assert saved.model_presets["fast-writing"].label == "Codex"
-        assert saved.model_presets["fast-writing"].model == "openai/gpt-5.5"
-        assert saved.model_presets["fast-writing"].provider == "openai"
+        assert saved.agents.defaults.model_preset is None
+        assert "fast-writing" not in saved.model_presets
         assert saved.agents.defaults.timezone == "Asia/Shanghai"
         assert saved.agents.defaults.bot_name == "Nano"
         assert saved.agents.defaults.bot_icon == "N"

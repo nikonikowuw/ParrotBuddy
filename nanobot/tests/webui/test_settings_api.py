@@ -17,6 +17,7 @@ from nanobot.webui.settings_api import (
     _model_catalog_kind,
     _oauth_provider_status,
     create_model_configuration,
+    delete_model_configuration,
     login_oauth_provider,
     provider_models_payload,
     settings_payload,
@@ -299,6 +300,49 @@ def test_update_model_configuration_edits_named_preset_and_selects(
     assert saved.model_presets["codex"].label == "Codex"
     assert saved.model_presets["codex"].provider == "openai_codex"
     assert saved.model_presets["codex"].model == "openai-codex/gpt-5.5"
+
+
+def test_delete_model_configuration_removes_preset_and_resets_if_active(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.providers.openai.api_key = "sk-test"
+    config.agents.defaults.model = "openai/gpt-4.1-mini"
+    config.agents.defaults.model_preset = "codex"
+    config.agents.defaults.fallback_models = ["codex", "extra"]
+    config.model_presets["codex"] = ModelPresetConfig(
+        label="Codex",
+        provider="openai",
+        model="openai/gpt-5.5",
+    )
+    config.model_presets["extra"] = ModelPresetConfig(
+        label="Extra",
+        provider="openai",
+        model="openai/gpt-4o",
+    )
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    # Deleting an active preset resets active preset to default
+    payload = delete_model_configuration({"name": ["codex"]})
+    assert payload["agent"]["model_preset"] == "default"
+    assert "codex" not in [p["name"] for p in payload["model_presets"]]
+    saved = load_config(config_path)
+    assert "codex" not in saved.model_presets
+    assert saved.agents.defaults.model_preset is None
+    assert "codex" not in saved.agents.defaults.fallback_models
+    assert "extra" in saved.agents.defaults.fallback_models
+
+    # Cannot delete default preset
+    with pytest.raises(WebUISettingsError, match="cannot delete default"):
+        delete_model_configuration({"name": ["default"]})
+
+    # Cannot delete nonexistent preset
+    with pytest.raises(WebUISettingsError, match="unknown model configuration"):
+        delete_model_configuration({"name": ["nonexistent"]})
+
 
 
 def test_update_provider_settings_updates_dynamic_custom_provider(

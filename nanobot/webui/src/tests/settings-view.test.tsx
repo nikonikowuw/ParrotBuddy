@@ -2513,4 +2513,69 @@ describe("SettingsView LightRAG knowledge base", () => {
     expect(serverList).toEqual([]);
     expect(await screen.findByText("No enterprise knowledge bases configured.")).toBeInTheDocument();
   });
+
+  it("deletes a custom model configuration through confirmation dialog", async () => {
+    const base = settingsPayload();
+    const payload: SettingsPayload = {
+      ...base,
+      agent: {
+        ...base.agent,
+        model_preset: "custom-preset",
+        model: "openai/gpt-4o",
+      },
+      model_presets: [
+        base.model_presets[0],
+        {
+          name: "custom-preset",
+          label: "Custom Preset",
+          provider: "openai",
+          model: "openai/gpt-4o",
+          is_default: false,
+          active: true,
+          configured: true,
+        },
+      ],
+    };
+    const afterDeletePayload: SettingsPayload = {
+      ...base,
+      agent: {
+        ...base.agent,
+        model_preset: "default",
+        model: "openai/gpt-4.1-mini",
+      },
+      model_presets: [base.model_presets[0]],
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+      if (url === "/api/settings/model-configurations/delete?name=custom-preset") {
+        return jsonResponse(afterDeletePayload);
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSettingsView({ initialSection: "models", initialSettings: payload });
+
+    const deleteBtn = await screen.findByRole("button", { name: "Delete configuration" });
+    fireEvent.click(deleteBtn);
+
+    expect(
+      await screen.findByText("This removes Custom Preset from saved model configurations."),
+    ).toBeInTheDocument();
+
+    const confirmBtn = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/model-configurations/delete?name=custom-preset",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer tok" },
+        }),
+      ),
+    );
+  });
 });

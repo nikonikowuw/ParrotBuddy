@@ -1320,6 +1320,34 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
     return settings_payload()
 
 
+def delete_model_configuration(query: QueryParams) -> dict[str, Any]:
+    name = (_query_first(query, "name") or "").strip()
+    if not name:
+        raise WebUISettingsError("model configuration name is required")
+    if name == "default":
+        raise WebUISettingsError("cannot delete default model configuration")
+
+    config = load_config()
+    if name not in config.model_presets:
+        raise WebUISettingsError("unknown model configuration")
+
+    del config.model_presets[name]
+
+    # Clean up fallback_models references if any
+    config.agents.defaults.fallback_models = [
+        item for item in config.agents.defaults.fallback_models
+        if item != name
+    ]
+
+    # Reset active preset to None (default) if deleted preset was active
+    if config.agents.defaults.model_preset == name:
+        config.agents.defaults.model_preset = None
+
+    save_config(config)
+    return settings_payload()
+
+
+
 def update_provider_settings(query: QueryParams) -> dict[str, Any]:
     provider_name = (_query_first(query, "provider") or "").strip()
     if not provider_name:

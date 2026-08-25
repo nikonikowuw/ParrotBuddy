@@ -835,6 +835,19 @@ export async function updateModelConfiguration(
   );
 }
 
+export async function deleteModelConfiguration(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-configurations/delete?${query}`,
+    token,
+  );
+}
+
 export async function updateProviderSettings(
   token: string,
   update: ProviderSettingsUpdate,

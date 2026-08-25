@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   configureChannel,
   createModelConfiguration,
+  deleteModelConfiguration,
   deleteSession,
   fetchFilePreview,
   fetchAutomations,
@@ -333,6 +334,17 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/model-configurations/update?name=codex&label=Codex&provider=openai_codex&model=openai-codex%2Fgpt-5.5&context_window_tokens=65536",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes model configuration deletion", async () => {
+    await deleteModelConfiguration("tok", "codex");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/model-configurations/delete?name=codex",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
