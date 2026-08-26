@@ -1,12 +1,12 @@
 {
   "app": {
-    "brand": "nanobot",
+    "brand": "PP Agent",
     "loading": {
-      "connecting": "Conectando con nanobot…",
-      "boot": "Cargando nanobot…"
+      "connecting": "Conectando con PP Agent…",
+      "boot": "Cargando PP Agent…"
     },
     "error": {
-      "title": "No se pudo conectar con nanobot",
+      "title": "No se pudo conectar con PP Agent",
       "gatewayHint": "Asegúrate de que la gateway esté en ejecución (`nanobot gateway`) y de que esta página esté abierta en la misma máquina."
     },
     "auth": {
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "Sistema",
-      "restartHint": "Reinicia nanobot para aplicar los cambios de ejecución.",
-      "restart": "Reiniciar nanobot",
+      "restartHint": "Reinicia PP Agent para aplicar los cambios de ejecución.",
+      "restart": "Reiniciar PP Agent",
       "restarting": "Reiniciando...",
       "restartEngine": "Reiniciar motor",
       "restartingEngine": "Reiniciando motor..."
@@ -33,11 +33,11 @@
       "completed": "Reinicio completado en {{seconds}} s."
     },
     "documentTitle": {
-      "base": "nanobot",
-      "chat": "{{title}} · nanobot"
+      "base": "PP Agent",
+      "chat": "{{title}} · PP Agent"
     },
     "meta": {
-      "description": "Interfaz web de nanobot: conversa con tu espacio de trabajo de nanobot."
+      "description": "Interfaz web de PP Agent: conversa con tu espacio de trabajo de PP Agent."
     }
   },
   "sidebar": {
@@ -115,7 +115,7 @@
       "language": "Idioma",
       "provider": "Proveedor",
       "model": "Modelo",
-      "restart": "Reiniciar nanobot",
+      "restart": "Reiniciar PP Agent",
       "configPath": "Ruta de configuración",
       "activePreset": "Preajuste activo",
       "gateway": "Pasarela",
@@ -164,7 +164,7 @@
       "theme": "Cambia entre apariencia clara y oscura.",
       "language": "Elige el idioma usado por WebUI.",
       "provider": "Selecciona el proveedor para nuevas solicitudes de modelo.",
-      "model": "Define el nombre de modelo predeterminado de nanobot.",
+      "model": "Define el nombre de modelo predeterminado de PP Agent.",
       "configPath": "Archivo de configuración que usa actualmente el gateway.",
       "selectedPreset": "Los preajustes con nombre son de solo lectura aquí; edítalos en config.json.",
       "presetModel": "Cambia a Default para editar modelo y proveedor desde WebUI.",
@@ -182,7 +182,7 @@
       "defaultAspectRatio": "Se usa cuando el prompt no elige una proporción.",
       "defaultImageSize": "Pista de tamaño enviada a proveedores compatibles.",
       "maxImagesPerTurn": "Límite superior para una solicitud generate_image.",
-      "botName": "Se muestra donde nanobot usa un nombre visible.",
+      "botName": "Se muestra donde PP Agent usa un nombre visible.",
       "botIcon": "Emoji o texto corto junto al nombre del bot.",
       "timezone": "Se usa para horarios y respuestas con conciencia temporal.",
       "localServiceAccess": "Permite que comandos shell con Full Access alcancen servicios localhost.",
@@ -192,7 +192,7 @@
       "selectedModelProvider": "Definido por el modelo seleccionado.",
       "selectedModelValue": "Definido por el modelo seleccionado.",
       "brandLogos": "Muestra logos de proveedores de terceros y CLI en Ajustes.",
-      "cliAppsCatalog": "Instala solo adaptadores CLI de apps que nanobot puede ejecutar localmente; las apps nativas no se modifican.",
+      "cliAppsCatalog": "Instala solo adaptadores CLI de apps que PP Agent puede ejecutar localmente; las apps nativas no se modifican.",
       "cliAppsFilter": "Busca por app, categoría o capacidad.",
       "logs": "Abre la carpeta de registros del motor nativo.",
       "diagnostics": "Exporta un pequeño informe de runtime para soporte.",
@@ -237,11 +237,11 @@
       "loadError": "No se pudieron cargar los ajustes",
       "unsaved": "Cambios sin guardar.",
       "upToDate": "Actualizado.",
-      "savedRestart": "Guardado. Reinicia nanobot para aplicar.",
+      "savedRestart": "Guardado. Reinicia PP Agent para aplicar.",
       "restartAfterSaving": "Guarda los cambios y reinicia cuando puedas.",
       "savedRestartApply": "Guardado. Reinicia cuando puedas.",
       "imageProviderRestart": "Cambios del proveedor de imagen guardados. Reinicia cuando puedas.",
-      "hostRestartAfterSaving": "Al guardar, nanobot reiniciará su motor.",
+      "hostRestartAfterSaving": "Al guardar, PP Agent reiniciará su motor.",
       "hostRestartPending": "Guardado. El motor se reiniciará cuando esté listo.",
       "hostApiUnavailable": "Las acciones del host solo están disponibles en la app nativa.",
       "logsOpened": "Carpeta de registros abierta.",
@@ -260,7 +260,7 @@
       "exporting": "Exportando..."
     },
     "byok": {
-      "description": "Usa tus propias claves de proveedor. Nanobot lee estos valores desde la configuración actual, y solo los proveedores configurados se pueden elegir en General.",
+      "description": "Usa tus propias claves de proveedor. PP Agent lee estos valores desde la configuración actual, y solo los proveedores configurados se pueden elegir en General.",
       "configured": "Configurado",
       "notConfigured": "Sin configurar",
       "configuredSection": "Configurados",
@@ -439,7 +439,7 @@
       "saveCustom": "Guardar MCP",
       "configImport": "Importar mcp.json",
       "importConfig": "Importar",
-      "restartRequired": "Reinicia nanobot para conectar las herramientas MCP actualizadas.",
+      "restartRequired": "Reinicia PP Agent para conectar las herramientas MCP actualizadas.",
       "toolsFound": "{{count}} herramientas",
       "loading": "Cargando presets MCP...",
       "empty": "Ningún preset MCP coincide con este filtro.",
@@ -489,15 +489,15 @@
     },
     "observability": {
       "title": "Observabilidad",
-      "configured": "Las credenciales de trazas están disponibles para nanobot.",
-      "environment": "Configura LANGFUSE_SECRET_KEY y LANGFUSE_PUBLIC_KEY y reinicia nanobot.",
+      "configured": "Las credenciales de trazas están disponibles para PP Agent.",
+      "environment": "Configura LANGFUSE_SECRET_KEY y LANGFUSE_PUBLIC_KEY y reinicia PP Agent.",
       "enable": "Habilitar soporte de trazas"
     },
     "legal": {
       "thirdPartyBrands": "Los nombres, logotipos y marcas de productos pertenecen a sus respectivos propietarios. Su uso es solo identificativo y no implica respaldo."
     },
     "apps": {
-      "description": "Añade herramientas a nanobot y luego úsalas con @ en el chat.",
+      "description": "Añade herramientas a PP Agent y luego úsalas con @ en el chat.",
       "cliLabel": "App",
       "mcpLabel": "Integración",
       "channelLabel": "Canal",
@@ -512,21 +512,21 @@
       "featured": "Herramientas",
       "loading": "Cargando apps...",
       "empty": "Ninguna herramienta coincide con esta vista.",
-      "restartRequired": "Reinicia nanobot para aplicar apps y funciones actualizadas."
+      "restartRequired": "Reinicia PP Agent para aplicar apps y funciones actualizadas."
     },
     "channels": {
-      "description": "Conecta nanobot con apps de chat. Instalar soporte solo añade el paquete de integración; la mayoría de canales aún necesitan tokens o configuración del espacio de trabajo.",
+      "description": "Conecta PP Agent con apps de chat. Instalar soporte solo añade el paquete de integración; la mayoría de canales aún necesitan tokens o configuración del espacio de trabajo.",
       "caption": "{{enabled}} activados · {{total}} canales",
       "searchPlaceholder": "Buscar canales",
       "backToChannels": "Todos los canales",
       "catalog": "Canales",
       "loading": "Cargando canales...",
       "empty": "Ningún canal coincide con este filtro.",
-      "restartRequired": "Reinicia nanobot para aplicar el soporte de canales actualizado.",
+      "restartRequired": "Reinicia PP Agent para aplicar el soporte de canales actualizado.",
       "requires": "Requiere: {{requirements}}",
       "setUp": "Configurar",
       "setupGuide": "Guía de configuración",
-      "setupSummary": "Activar solo habilita el soporte en nanobot. Añade las credenciales de la plataforma y reinicia nanobot.",
+      "setupSummary": "Activar solo habilita el soporte en PP Agent. Añade las credenciales de la plataforma y reinicia PP Agent.",
       "configKeys": "Claves de configuración",
       "enable": "Activar canal",
       "disable": "Desactivar canal",
@@ -535,7 +535,7 @@
       "reconnect": "Reconectar",
       "feishuQrAlt": "Código QR de conexión de Feishu",
       "feishuScanTitle": "Escanea con Feishu",
-      "feishuScanDescription": "Usa Feishu o Lark en tu teléfono para escanear este código. nanobot terminará la configuración automáticamente después de la autorización.",
+      "feishuScanDescription": "Usa Feishu o Lark en tu teléfono para escanear este código. PP Agent terminará la configuración automáticamente después de la autorización.",
       "feishuWaiting": "Esperando autorización...",
       "feishuConnected": "Feishu está conectado.",
       "feishuConnectStopped": "Conexión detenida.",
@@ -549,7 +549,7 @@
       "missingDependency": "Falta soporte",
       "installSupport": "Instalar soporte",
       "installConfirmTitle": "¿Instalar soporte para {{name}}?",
-      "installConfirmDescription": "nanobot añadirá lo que {{name}} necesita y luego lo activará. ¿Continuar?",
+      "installConfirmDescription": "PP Agent añadirá lo que {{name}} necesita y luego lo activará. ¿Continuar?",
       "installConfirmAction": "Instalar y activar",
       "websocketRequired": "Requerido para WebUI",
       "channelDisabled": "El canal está desactivado",
@@ -574,7 +574,7 @@
       "loading": "Cargando automatizaciones...",
       "noMatches": "No hay automatizaciones que coincidan con esta vista.",
       "empty": "Aún no hay automatizaciones.",
-      "emptyHint": "Créala desde donde debe ejecutarse para que nanobot conserve el contexto correcto.",
+      "emptyHint": "Créala desde donde debe ejecutarse para que PP Agent conserve el contexto correcto.",
       "oneShot": "Una vez",
       "systemTask": "Automatización administrada por el sistema",
       "localTrigger": "Activador local",
@@ -867,7 +867,7 @@
       "imageQuickActions": {
         "icon": {
           "title": "Diseñar un icono de app",
-          "prompt": "Genera un icono de app 1:1 limpio para nanobot: robot amigable, estilo vectorial simple, paleta suave azul y blanca, sin texto."
+          "prompt": "Genera un icono de app 1:1 limpio para PP Agent: robot amigable, estilo vectorial simple, paleta suave azul y blanca, sin texto."
         },
         "sticker": {
           "title": "Crear un sticker",
@@ -1003,7 +1003,7 @@
             "description": "Cancela el turno activo del agent en este chat."
           },
           "restart": {
-            "title": "Reiniciar nanobot",
+            "title": "Reiniciar PP Agent",
             "description": "Reinicia el proceso del bot en el mismo lugar."
           },
           "status": {
@@ -1215,7 +1215,7 @@
     },
     "workspaceScopeRejected": {
       "title": "El espacio de trabajo no cambió",
-      "body": "El gateway rechazó el proyecto o modo de acceso solicitado, así que Nanobot conservó el espacio de trabajo anterior."
+      "body": "El gateway rechazó el proyecto o modo de acceso solicitado, así que PP Agent conservó el espacio de trabajo anterior."
     }
   },
   "workspace": {

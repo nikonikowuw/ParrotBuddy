@@ -1,12 +1,12 @@
 {
   "app": {
-    "brand": "nanobot",
+    "brand": "皮皮超級助理",
     "loading": {
-      "connecting": "正在連線到 nanobot…",
-      "boot": "正在載入 nanobot…"
+      "connecting": "正在連線到皮皮超級助理…",
+      "boot": "正在載入 皮皮超級助理…"
     },
     "error": {
-      "title": "無法連線到 nanobot",
+      "title": "無法連線到皮皮超級助理",
       "gatewayHint": "請確認 gateway 已啟動（`nanobot gateway`），並且目前頁面與 gateway 在同一台機器上開啟。"
     },
     "auth": {
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "系統",
-      "restartHint": "重新啟動 nanobot 以套用執行階段變更。",
-      "restart": "重新啟動 nanobot",
+      "restartHint": "重新啟動皮皮超級助理以套用執行階段變更。",
+      "restart": "重新啟動皮皮超級助理",
       "restarting": "正在重新啟動...",
       "restartEngine": "重新啟動引擎",
       "restartingEngine": "正在重新啟動引擎..."
@@ -33,11 +33,11 @@
       "completed": "重新啟動已完成，耗時 {{seconds}} 秒。"
     },
     "documentTitle": {
-      "base": "nanobot",
-      "chat": "{{title}} · nanobot"
+      "base": "皮皮超級助理",
+      "chat": "{{title}} · 皮皮超級助理"
     },
     "meta": {
-      "description": "nanobot Web UI —— 與你的 nanobot 工作區對話。"
+      "description": "皮皮超級助理 Web UI —— 與你的皮皮超級助理工作區對話。"
     }
   },
   "sidebar": {
@@ -115,7 +115,7 @@
       "language": "語言",
       "provider": "供應商",
       "model": "模型",
-      "restart": "重新啟動 nanobot",
+      "restart": "重新啟動皮皮超級助理",
       "configPath": "配置路徑",
       "activePreset": "目前預設",
       "gateway": "閘道",
@@ -164,7 +164,7 @@
       "theme": "在淺色與深色外觀之間切換。",
       "language": "選擇 WebUI 使用的語言。",
       "provider": "選擇處理新模型請求的供應商。",
-      "model": "設定 nanobot 預設使用的模型名稱。",
+      "model": "設定皮皮超級助理預設使用的模型名稱。",
       "configPath": "目前閘道使用中的配置檔。",
       "selectedPreset": "命名預設在此為唯讀；請在 config.json 中編輯。",
       "presetModel": "切回 Default 後可在 WebUI 中編輯模型與供應商。",
@@ -182,7 +182,7 @@
       "defaultAspectRatio": "提示詞未指定比例時使用。",
       "defaultImageSize": "傳送給支援此選項的供應商的尺寸提示。",
       "maxImagesPerTurn": "單次 generate_image 請求可生成的圖片上限。",
-      "botName": "顯示在 nanobot 使用顯示名稱的位置。",
+      "botName": "顯示在皮皮超級助理使用顯示名稱的位置。",
       "botIcon": "顯示在 Bot 名稱旁的短 emoji 或文字。",
       "timezone": "用於排程和需要時間感知的回覆。",
       "localServiceAccess": "允許完全訪問權限下的 shell 命令訪問 localhost 服務。",
@@ -192,7 +192,7 @@
       "selectedModelProvider": "由選取的模型決定。",
       "selectedModelValue": "由選取的模型決定。",
       "brandLogos": "在設定中顯示第三方提供商和 CLI 圖示。",
-      "cliAppsCatalog": "只安裝 nanobot 可在本機執行的應用 CLI 轉接器；不會改動原生應用。",
+      "cliAppsCatalog": "只安裝皮皮超級助理可在本機執行的應用 CLI 轉接器；不會改動原生應用。",
       "cliAppsFilter": "按應用、類別或能力搜尋。",
       "logs": "開啟原生引擎日誌資料夾。",
       "diagnostics": "匯出一份用於支援排查的小型執行報告。",
@@ -237,11 +237,11 @@
       "loadError": "無法載入設定",
       "unsaved": "有未儲存的更改。",
       "upToDate": "已是最新。",
-      "savedRestart": "已儲存。重新啟動 nanobot 後生效。",
+      "savedRestart": "已儲存。重新啟動皮皮超級助理 後生效。",
       "restartAfterSaving": "儲存更改後，在合適時重啟。",
       "savedRestartApply": "已儲存。準備好後重啟。",
       "imageProviderRestart": "圖片供應商更改已儲存。準備好後重啟。",
-      "hostRestartAfterSaving": "儲存後 nanobot 會重啟引擎。",
+      "hostRestartAfterSaving": "儲存後皮皮超級助理會重啟引擎。",
       "hostRestartPending": "已儲存。準備好後會重啟引擎。",
       "hostApiUnavailable": "宿主操作僅在原生應用中可用。",
       "logsOpened": "已開啟日誌資料夾。",
@@ -260,7 +260,7 @@
       "exporting": "正在匯出..."
     },
     "byok": {
-      "description": "自帶 provider key。Nanobot 會從目前 config 讀取這些值，只有已設定的 provider 才能在一般設定中選擇。",
+      "description": "自帶 provider key。皮皮超級助理會從目前 config 讀取這些值，只有已設定的 provider 才能在一般設定中選擇。",
       "configured": "已設定",
       "notConfigured": "未設定",
       "configuredSection": "已設定",
@@ -439,7 +439,7 @@
       "saveCustom": "儲存 MCP",
       "configImport": "匯入 mcp.json",
       "importConfig": "匯入",
-      "restartRequired": "重新啟動 nanobot 以連接更新後的 MCP 工具。",
+      "restartRequired": "重新啟動皮皮超級助理 以連接更新後的 MCP 工具。",
       "toolsFound": "{{count}} 個工具",
       "loading": "正在載入 MCP 預設...",
       "empty": "沒有符合此篩選條件的 MCP 預設。",
@@ -469,7 +469,7 @@
     "api": {
       "title": "API 服務",
       "openaiCompatible": "OpenAI 相容 API",
-      "description": "讓 SDK 和其他 Agent 透過本機 /v1 介面連接 nanobot。",
+      "description": "讓 SDK 和其他 Agent 透過本機 /v1 介面連接皮皮超級助理。",
       "start": "啟動 API 服務",
       "starting": "正在啟動...",
       "stop": "停止",
@@ -489,15 +489,15 @@
     },
     "observability": {
       "title": "可觀測性",
-      "configured": "nanobot 已偵測到追蹤憑證。",
-      "environment": "設定 LANGFUSE_SECRET_KEY 和 LANGFUSE_PUBLIC_KEY 後重新啟動 nanobot。",
+      "configured": "皮皮超級助理已偵測到追蹤憑證。",
+      "environment": "設定 LANGFUSE_SECRET_KEY 和 LANGFUSE_PUBLIC_KEY 後重新啟動皮皮超級助理。",
       "enable": "啟用追蹤支援"
     },
     "legal": {
       "thirdPartyBrands": "產品名稱、標誌與品牌均屬於其各自擁有者。使用僅為識別用途，並不代表背書。"
     },
     "apps": {
-      "description": "把工具連接到 nanobot，然後在對話中使用 @。",
+      "description": "把工具連接到皮皮超級助理，然後在對話中使用 @。",
       "cliLabel": "應用",
       "mcpLabel": "整合",
       "channelLabel": "通道",
@@ -512,21 +512,21 @@
       "featured": "工具",
       "loading": "正在載入應用...",
       "empty": "目前檢視沒有符合的工具。",
-      "restartRequired": "重新啟動 nanobot 以套用更新後的應用和能力。"
+      "restartRequired": "重新啟動皮皮超級助理 以套用更新後的應用和能力。"
     },
     "channels": {
-      "description": "把聊天應用、郵箱和 WebUI 連接到 nanobot。",
+      "description": "把聊天應用、郵箱和 WebUI 連接到皮皮超級助理。",
       "caption": "{{enabled}} 個已啟用 · 共 {{total}} 個渠道",
       "searchPlaceholder": "搜尋渠道",
       "backToChannels": "所有渠道",
       "catalog": "渠道",
       "loading": "正在載入渠道...",
       "empty": "沒有符合的渠道。",
-      "restartRequired": "重新啟動 nanobot 以套用更新後的渠道支援。",
+      "restartRequired": "重新啟動皮皮超級助理 以套用更新後的渠道支援。",
       "requires": "需要：{{requirements}}",
       "setUp": "設定",
       "setupGuide": "設定指南",
-      "setupSummary": "啟用只會打開 nanobot 的渠道支援。請補充平台憑證，然後重新啟動 nanobot。",
+      "setupSummary": "啟用只會打開皮皮超級助理的渠道支援。請補充平台憑證，然後重新啟動皮皮超級助理。",
       "configKeys": "設定欄位",
       "enable": "啟用渠道",
       "disable": "停用渠道",
@@ -535,7 +535,7 @@
       "reconnect": "重新連接",
       "feishuQrAlt": "飛書連接二維碼",
       "feishuScanTitle": "使用飛書掃碼",
-      "feishuScanDescription": "用手機上的飛書或 Lark 掃描二維碼。授權完成後，nanobot 會自動完成設定。",
+      "feishuScanDescription": "用手機上的飛書或 Lark 掃描二維碼。授權完成後，皮皮超級助理會自動完成設定。",
       "feishuWaiting": "正在等待授權...",
       "feishuConnected": "飛書已連接。",
       "feishuConnectStopped": "連接已停止。",
@@ -574,7 +574,7 @@
       "loading": "正在載入自動任務...",
       "noMatches": "目前檢視沒有符合的自動任務。",
       "empty": "尚無自動任務。",
-      "emptyHint": "請從它應該執行的來源處建立，這樣 nanobot 才能保留正確上下文。",
+      "emptyHint": "請從它應該執行的來源處建立，這樣皮皮超級助理才能保留正確上下文。",
       "oneShot": "一次性",
       "systemTask": "系統管理的自動任務",
       "localTrigger": "本機觸發器",
@@ -867,7 +867,7 @@
       "imageQuickActions": {
         "icon": {
           "title": "設計應用程式圖示",
-          "prompt": "生成一個乾淨的 1:1 nanobot 應用程式圖示：友善的機器人、簡潔向量風格、柔和藍白配色，不要文字。"
+          "prompt": "生成一個乾淨的 1:1 皮皮超級助理應用程式圖示：友善的機器人、簡潔向量風格、柔和藍白配色，不要文字。"
         },
         "sticker": {
           "title": "製作貼圖",
@@ -1003,7 +1003,7 @@
             "description": "取消這個對話中正在執行的 agent 回合。"
           },
           "restart": {
-            "title": "重新啟動 nanobot",
+            "title": "重新啟動皮皮超級助理",
             "description": "原地重新啟動 bot 進程。"
           },
           "status": {
@@ -1215,7 +1215,7 @@
     },
     "workspaceScopeRejected": {
       "title": "工作區未變更",
-      "body": "閘道拒絕了要求的專案或存取權限，Nanobot 已繼續使用先前的工作區。"
+      "body": "閘道拒絕了要求的專案或存取權限，皮皮超級助理已繼續使用先前的工作區。"
     }
   },
   "workspace": {
