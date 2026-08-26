@@ -23,9 +23,17 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 
 | Skill | Description |
 |-------|-------------|
+| `docx` | Create, edit, and analyze Word documents (`.docx`) |
+| `pptx` | Create, edit, and analyze PowerPoint presentations (`.pptx`) |
+| `doc-coauthoring` | Structured workflow for co-authoring long documents, specs, and proposals |
+| `extract-wisdom` | Extract insights, actionable takeaways, and structured summaries from articles, videos, and documents |
+| `internal-comms` | Write internal communications (status reports, newsletters, FAQs, 3P updates) |
+| `deep-research` | Multi-source deep research with citation tracking, claim verification, and report generation |
+| `travel-planner` | Plan trips, generate day-by-day itineraries, budgets, packing lists, and cultural guides |
 | `github` | Interact with GitHub using the `gh` CLI |
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `summarize` | Summarize URLs, files, and YouTube videos |
+| `cron` | Schedule reminders and recurring tasks |
 | `tmux` | Remote-control tmux sessions |
 | `clawhub` | Search and install skills from ClawHub registry |
 | `skill-creator` | Create new skills |
