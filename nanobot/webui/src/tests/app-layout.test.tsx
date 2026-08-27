@@ -1717,7 +1717,6 @@ describe("App layout", () => {
     expect(screen.queryByText("Heartbeat")).not.toBeInTheDocument();
     expect(screen.queryByText("Dream")).not.toBeInTheDocument();
     expect(screen.queryByText("Unified session")).not.toBeInTheDocument();
-    expect(screen.getByText("Default workspace")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     fireEvent.pointerDown(screen.getByRole("button", { name: "UTC" }));
     expect(screen.getByPlaceholderText("Search timezone")).toBeInTheDocument();

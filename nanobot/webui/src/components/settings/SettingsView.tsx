@@ -7181,8 +7181,9 @@ function RuntimeSettings({
               value={`${settings.runtime.gateway_host}:${settings.runtime.gateway_port}`}
             />
           ) : null}
-          <ReadOnlyRow title={t("settings.rows.configPath")} value={settings.runtime.config_path} />
-          <ReadOnlyRow title={tx("settings.rows.workspacePath", "Default workspace")} value={settings.runtime.workspace_path} />
+          {/* TODO(MVP): Hide config_path and workspace_path to avoid exposing internal runtime paths and naming */}
+          {/* <ReadOnlyRow title={t("settings.rows.configPath")} value={settings.runtime.config_path} /> */}
+          {/* <ReadOnlyRow title={tx("settings.rows.workspacePath", "Default workspace")} value={settings.runtime.workspace_path} /> */}
           {onRestart && !requiresRestartPending ? (
             <SettingsRow
               title={t("settings.rows.restart")}
