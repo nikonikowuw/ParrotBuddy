@@ -2,28 +2,20 @@ import { useTranslation } from "react-i18next";
 
 import {
   BookOpen,
-  ChevronDown,
-  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 /**
- * Knowledge-base selector for configured LightRAG servers. The selection is
- * stored as server names and sent to the backend as lightrag_workspaces.
+ * Knowledge-base toggle for LightRAG.
+ * TODO(MVP): In MVP version, enterprise knowledge base configuration and multi-server
+ * selection are simplified into a single binary toggle (enabled/disabled).
+ * Keep props compatible so multi-KB selection can be re-introduced later.
  */
 export interface KnowledgeBaseMenuProps {
   /** Server names sourced from settings (config.tools.lightrag.servers). */
-  options: string[];
+  options?: string[];
   /** Localized/display name for the built-in personal knowledge base. */
   personalLabel?: string | null;
   /** Currently selected server names. */
@@ -34,139 +26,49 @@ export interface KnowledgeBaseMenuProps {
 }
 
 export function KnowledgeBaseMenu({
-  options,
+  options = [],
   selected,
   isHero,
   disabled,
   onChange,
-  personalLabel,
 }: KnowledgeBaseMenuProps) {
   const { t } = useTranslation();
   const interactive = !disabled && !!onChange;
-  const hasSelection = selected.length > 0;
+  const isEnabled = selected.length > 0;
 
-  const toggleNamed = (name: string) => {
+  const toggle = () => {
     if (!onChange) return;
-    const next = selected.includes(name)
-      ? selected.filter((item) => item !== name)
-      : [...selected, name];
-    onChange(next);
-  };
-
-  const clear = () => {
-    if (onChange && hasSelection) onChange([]);
-  };
-
-  const triggerLabel = !hasSelection
-    ? t("thread.composer.knowledgeBase.label")
-    : t("thread.composer.knowledgeBase.selectedCount", {
-        count: selected.length,
-      });
-  const personalOptions = options.filter((name) => name === "__personal__");
-  const enterpriseOptions = options.filter((name) => name !== "__personal__");
-  const renderOption = (name: string) => {
-    const displayName =
-      name === "__personal__"
-        ? personalLabel?.trim() || t("thread.composer.knowledgeBase.personal")
-        : name;
-    return (
-      <DropdownMenuCheckboxItem
-        key={name}
-        checked={selected.includes(name)}
-        onCheckedChange={() => toggleNamed(name)}
-        onSelect={(e) => e.preventDefault()}
-      >
-        {displayName}
-      </DropdownMenuCheckboxItem>
-    );
+    if (isEnabled) {
+      onChange([]);
+    } else {
+      // Default to personal KB if present in options or "__personal__"
+      const defaultTarget = options.includes("__personal__")
+        ? "__personal__"
+        : options[0] || "__personal__";
+      onChange([defaultTarget]);
+    }
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild disabled={!interactive}>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={t("thread.composer.knowledgeBase.ariaLabel")}
-          title={t("thread.composer.knowledgeBase.tooltip")}
-          className={cn(
-            "max-w-[min(12.5rem,42vw)] rounded-[10px] border border-transparent font-semibold shadow-none",
-            isHero ? "h-8 px-2.5 text-[12px]" : "h-9 px-3 text-[12.5px]",
-            hasSelection
-              ? "bg-transparent text-sky-600 hover:bg-sky-500/8 dark:text-sky-300 dark:hover:bg-sky-400/10"
-              : "bg-transparent text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground dark:hover:bg-white/[0.06]",
-          )}
-        >
-          <BookOpen className="mr-1.5 h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{triggerLabel}</span>
-          {hasSelection ? (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={t("thread.composer.knowledgeBase.clear")}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                clear();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  clear();
-                }
-              }}
-              className="ml-1 flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-            </span>
-          ) : (
-            <ChevronDown className="ml-1.5 h-3 w-3 shrink-0" />
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel>
-          {t("thread.composer.knowledgeBase.label")}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.length > 0 ? (
-          <>
-            {personalOptions.length > 0 ? (
-              <>
-                <DropdownMenuLabel>
-                  {personalLabel?.trim() || t("thread.composer.knowledgeBase.personal")}
-                </DropdownMenuLabel>
-                {personalOptions.map(renderOption)}
-              </>
-            ) : null}
-            {enterpriseOptions.length > 0 ? (
-              <>
-                <DropdownMenuLabel>
-                  {t("thread.composer.knowledgeBase.enterprise")}
-                </DropdownMenuLabel>
-                {enterpriseOptions.map(renderOption)}
-              </>
-            ) : null}
-          </>
-        ) : (
-          <div className="px-2.5 py-1.5 text-[12px] text-muted-foreground">
-            {t("thread.composer.knowledgeBase.none")}
-          </div>
-        )}
-        {hasSelection ? (
-          <>
-            <DropdownMenuSeparator />
-            <button
-              type="button"
-              onClick={clear}
-              className="w-full px-2.5 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              {t("thread.composer.knowledgeBase.clear")}
-            </button>
-          </>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      type="button"
+      variant="ghost"
+      disabled={!interactive}
+      onClick={toggle}
+      aria-label={t("thread.composer.knowledgeBase.ariaLabel")}
+      aria-pressed={isEnabled}
+      title={t("thread.composer.knowledgeBase.tooltip")}
+      className={cn(
+        "max-w-[min(12.5rem,42vw)] rounded-[10px] border border-transparent font-semibold shadow-none transition-colors",
+        isHero ? "h-8 px-2.5 text-[12px]" : "h-9 px-3 text-[12.5px]",
+        isEnabled
+          ? "bg-transparent text-sky-600 hover:bg-sky-500/8 dark:text-sky-300 dark:hover:bg-sky-400/10"
+          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground dark:hover:bg-white/[0.06]",
+      )}
+    >
+      <BookOpen className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{t("thread.composer.knowledgeBase.label")}</span>
+    </Button>
   );
 }
+

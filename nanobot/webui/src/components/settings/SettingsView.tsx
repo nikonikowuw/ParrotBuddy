@@ -47,7 +47,6 @@ import {
   Palette,
   Pencil,
   RotateCcw,
-  BookOpen,
   Search,
   Server,
   ShieldCheck,
@@ -2049,7 +2048,8 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "overview", icon: Activity, fallback: "Overview" },
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
-  { key: "lightrag", icon: BookOpen, fallback: "Knowledge Base" },
+  // TODO(MVP): Enterprise knowledge base configuration is hidden in the MVP version. Re-enable when multi-KB configuration is exposed.
+  // { key: "lightrag", icon: BookOpen, fallback: "Knowledge Base" },
   { key: "image", icon: ImageIcon, fallback: "Image" },
   { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },

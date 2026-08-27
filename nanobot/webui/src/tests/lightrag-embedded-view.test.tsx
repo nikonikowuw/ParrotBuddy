@@ -130,18 +130,6 @@ describe("LightRagEmbeddedView", () => {
     expect(screen.getByTitle("docs — LightRAG")).toBeInTheDocument();
   });
 
-  it("persists a server switch made through the selector", async () => {
-    render(<LightRagEmbeddedView settings={TWO_SERVERS} tab="documents" theme="light" />);
-    fireEvent.pointerDown(screen.getByRole("button", { name: "docs" }));
-    const prod = await screen.findByRole("menuitem", { name: /prod/ });
-    fireEvent.click(prod);
-    expect(screen.getByTitle("prod — LightRAG")).toHaveAttribute(
-      "src",
-      "https://rag.example.com/webui/?embedded=1&tab=documents&theme=light&lang=en",
-    );
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("prod");
-  });
-
   it("updates the iframe url and frameKey when language changes", async () => {
     const { rerender } = render(<LightRagEmbeddedView settings={TWO_SERVERS} tab="documents" theme="light" />);
     expect(screen.getByTitle("docs — LightRAG")).toHaveAttribute(
@@ -158,15 +146,13 @@ describe("LightRagEmbeddedView", () => {
     await i18n.changeLanguage("en");
   });
 
-  it("uses the configured personal display name in the embedded selector", async () => {
+  it("uses the configured personal display name for the iframe title", async () => {
     render(<LightRagEmbeddedView settings={PERSONAL_ONLY} tab="documents" theme="light" />);
 
     expect(screen.getByTitle("My Personal KB — LightRAG")).toHaveAttribute(
       "src",
       "http://127.0.0.1:9630/webui/?embedded=1&tab=documents&theme=light&lang=en",
     );
-    fireEvent.pointerDown(screen.getByRole("button", { name: "My Personal KB" }));
-    expect(await screen.findByRole("menuitem", { name: /My Personal KB/ })).toBeInTheDocument();
   });
 
   it("uses the localized personal label when no display override is configured", async () => {

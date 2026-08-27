@@ -265,44 +265,47 @@ export function LightRagEmbeddedView({
               : tx("sidebar.knowledgeGraph", "Knowledge Graph")}
           </span>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-7 gap-1.5 rounded-full px-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground"
-              title={server.api_base}
-            >
-              <Server className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-[16rem] truncate">
-                {server.label ?? server.name}
-              </span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuLabel>
-              {tx("lightragEmbedded.serverLabel", "LightRAG server")}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {servers.map((item) => (
-              <DropdownMenuItem
-                key={item.name}
-                onSelect={() => setSelectedName(item.name)}
-                className={cn(item.name === server.name && "bg-foreground/[0.055]")}
+        {/* TODO(MVP): In MVP version, hide the top-left knowledge base server switcher. Keep dropdown logic and state management intact for future multi-KB support. */}
+        {false && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-7 gap-1.5 rounded-full px-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground"
+                title={server?.api_base}
               >
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{item.label ?? item.name}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {item.api_base}
-                  </span>
+                <Server className="h-3.5 w-3.5 shrink-0" />
+                <span className="max-w-[16rem] truncate">
+                  {server?.label ?? server?.name}
                 </span>
-                {item.name === server.name ? (
-                  <Check className="ml-auto h-3.5 w-3.5 shrink-0" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel>
+                {tx("lightragEmbedded.serverLabel", "LightRAG server")}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {servers.map((item) => (
+                <DropdownMenuItem
+                  key={item.name}
+                  onSelect={() => setSelectedName(item.name)}
+                  className={cn(item.name === server?.name && "bg-foreground/[0.055]")}
+                >
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{item.label ?? item.name}</span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {item.api_base}
+                    </span>
+                  </span>
+                  {item.name === server?.name ? (
+                    <Check className="ml-auto h-3.5 w-3.5 shrink-0" />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           {!loaded ? (
             <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
