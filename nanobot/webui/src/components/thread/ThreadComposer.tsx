@@ -921,7 +921,8 @@ export function ThreadComposer({
     [pendingQueueKey],
   );
   const showProjectPicker =
-    !!workspaceDefaultScope
+    isHero
+    && !!workspaceDefaultScope
     && !!onWorkspaceScopeChange
     && workspaceControls?.can_change_project !== false;
 

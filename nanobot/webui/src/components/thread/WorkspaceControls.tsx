@@ -26,7 +26,7 @@ import {
 } from "@/lib/workspace";
 
 export function WorkspaceProjectPicker({
-  isHero: _isHero,
+  isHero,
   disabled,
   scope,
   defaultScope,
@@ -34,7 +34,7 @@ export function WorkspaceProjectPicker({
   error,
   onChange,
 }: {
-  isHero?: boolean;
+  isHero: boolean;
   disabled?: boolean;
   scope: WorkspaceScopePayload | null;
   defaultScope: WorkspaceScopePayload | null;
@@ -52,7 +52,8 @@ export function WorkspaceProjectPicker({
     ? currentProjectScope.project_name || projectNameFromPath(currentProjectScope.project_path)
     : t("thread.composer.workspace.projectPlaceholder");
   const visible =
-    !!defaultScope
+    isHero
+    && !!defaultScope
     && !!onChange
     && controls?.can_change_project !== false;
   const hostApi = getHostApi();
