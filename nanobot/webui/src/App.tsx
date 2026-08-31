@@ -1489,6 +1489,7 @@ function Shell({
           setKnowledgeBasesOverrides((current) => ({ ...current, [chatId]: kbs }));
           client.setLightragWorkspaces(chatId, kbs);
         }
+        setPendingComposerDraftText(null);
         return chatId;
       } catch (e) {
         console.error("Failed to create chat", e);
