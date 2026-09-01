@@ -997,6 +997,9 @@ async def test_remote_access_reduction_rejects_stale_in_flight_message_scope(
     settings_conn.remote_address = ("203.0.113.8", 50124)
     chat_id = "race-chat"
 
+    # Mock controls_available to False for remote connections to test non-escalating scope check
+    channel._workspace_controls_available = lambda conn: False
+
     message_task = asyncio.create_task(
         channel._dispatch_envelope(
             message_conn,
@@ -1039,7 +1042,7 @@ async def test_remote_access_reduction_rejects_stale_in_flight_message_scope(
 
 
 @pytest.mark.asyncio
-async def test_webui_scope_rejects_non_loopback_custom_scope(bus: MagicMock, tmp_path) -> None:
+async def test_webui_scope_allows_non_loopback_custom_scope(bus: MagicMock, tmp_path) -> None:
     default_workspace = tmp_path / "default"
     project = tmp_path / "project"
     default_workspace.mkdir()
@@ -1067,11 +1070,10 @@ async def test_webui_scope_rejects_non_loopback_custom_scope(bus: MagicMock, tmp
     )
 
     payload = json.loads(conn.send.await_args.args[0])
-    assert payload["event"] == "error"
-    assert payload["detail"] == "workspace_scope_rejected"
-    assert payload["reason"] == "workspace controls are localhost-only"
+    assert payload["event"] == "session_updated"
     assert payload["chat_id"] == "chat-remote"
-    assert sessions.read_session_file("websocket:chat-remote") is None
+    assert payload["workspace_scope"]["project_path"] == str(project.resolve())
+    assert sessions.read_session_file("websocket:chat-remote") is not None
 
 
 @pytest.mark.asyncio

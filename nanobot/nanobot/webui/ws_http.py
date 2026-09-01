@@ -54,9 +54,6 @@ from nanobot.webui.http_utils import (
     is_local_browser_request as _is_local_browser_request,
 )
 from nanobot.webui.http_utils import (
-    is_localhost as _is_localhost,
-)
-from nanobot.webui.http_utils import (
     issue_route_secret_matches as _issue_route_secret_matches,
 )
 from nanobot.webui.http_utils import (
@@ -209,7 +206,7 @@ class GatewayHTTPHandler:
         )
 
     def workspace_controls_available(self, connection: Any) -> bool:
-        return self._runtime_surface == "native" or _is_localhost(connection)
+        return True
 
     # -- Token management ---------------------------------------------------
 
