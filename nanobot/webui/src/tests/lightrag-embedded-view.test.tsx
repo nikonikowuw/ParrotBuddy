@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LightRagEmbeddedView, toLightRagLanguage } from "@/components/lightrag/LightRagEmbeddedView";
+import {
+  LightRagEmbeddedView,
+  resolveClientApiBase,
+  toLightRagLanguage,
+} from "@/components/lightrag/LightRagEmbeddedView";
 import i18n from "@/i18n";
 import type { SettingsPayload } from "@/lib/types";
 
@@ -243,5 +247,28 @@ describe("LightRagEmbeddedView", () => {
     );
 
     expect(onChatWithEntity).not.toHaveBeenCalled();
+  });
+
+  it("resolves loopback apiBase to current hostname when accessed from LAN", () => {
+    // When location is localhost, loopback stays unchanged
+    expect(resolveClientApiBase("http://127.0.0.1:9621")).toBe("http://127.0.0.1:9621");
+    expect(resolveClientApiBase("http://localhost:9621/")).toBe("http://localhost:9621");
+
+    // Simulate opening from a LAN IP
+    const originalLocation = window.location;
+    delete (window as unknown as { location?: Location }).location;
+    window.location = {
+      ...originalLocation,
+      hostname: "192.168.1.100",
+    } as Location;
+
+    try {
+      expect(resolveClientApiBase("http://127.0.0.1:9621")).toBe("http://192.168.1.100:9621");
+      expect(resolveClientApiBase("http://localhost:9621/v1/")).toBe("http://192.168.1.100:9621/v1");
+      // Non-loopback remote URL stays untouched
+      expect(resolveClientApiBase("https://rag.company.com:9621")).toBe("https://rag.company.com:9621");
+    } finally {
+      window.location = originalLocation;
+    }
   });
 });

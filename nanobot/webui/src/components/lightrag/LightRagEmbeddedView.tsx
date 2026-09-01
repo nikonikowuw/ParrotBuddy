@@ -79,6 +79,41 @@ export function toLightRagLanguage(
   return "en";
 }
 
+/**
+ * If api_base points to a loopback host (localhost / 127.0.0.1 / ::1), but the WebUI
+ * is being accessed from a non-loopback address (e.g. LAN IP, domain name), dynamically
+ * resolve the hostname to match current window.location.hostname so the iframe and
+ * client-side links load seamlessly without manual LAN IP re-configuration.
+ */
+export function resolveClientApiBase(apiBase: string): string {
+  if (!apiBase) return apiBase;
+  try {
+    const url = new URL(apiBase);
+    const isLoopback =
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1" ||
+      url.hostname === "0.0.0.0";
+
+    if (isLoopback && typeof window !== "undefined" && window.location?.hostname) {
+      const currentHost = window.location.hostname;
+      const isCurrentLoopback =
+        currentHost === "localhost" ||
+        currentHost === "127.0.0.1" ||
+        currentHost === "::1" ||
+        currentHost === "0.0.0.0";
+
+      if (!isCurrentLoopback && currentHost) {
+        url.hostname = currentHost;
+        return url.toString().replace(/\/+$/, "");
+      }
+    }
+  } catch {
+    // ignore parse error and fallback to normalized apiBase
+  }
+  return apiBase.replace(/\/+$/, "");
+}
+
 /** Browser-local navigation preference: which LightRAG server the embedded
  * page last pointed at (per-browser, never written back to config). */
 const EMBEDDED_SERVER_STORAGE_KEY = "nanobot-webui.lightrag-embedded-server";
@@ -170,7 +205,7 @@ export function LightRagEmbeddedView({
 
   const iframeUrl = useMemo(() => {
     if (!server) return null;
-    const base = server.api_base.replace(/\/+$/, "");
+    const base = resolveClientApiBase(server.api_base);
     const params = new URLSearchParams({
       embedded: "1",
       tab,
