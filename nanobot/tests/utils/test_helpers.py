@@ -75,3 +75,25 @@ def test_write_text_atomic_keeps_file_when_directory_fsync_is_unsupported(
 
     assert target.read_text(encoding="utf-8") == '{"pending": {}}'
     assert len(fsync_calls) == 1
+
+
+def test_ensure_tiktoken_cache_dir_respects_existing_env(monkeypatch):
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/custom/cache")
+    helpers._ensure_tiktoken_cache_dir()
+    assert helpers.os.environ["TIKTOKEN_CACHE_DIR"] == "/custom/cache"
+
+
+def test_ensure_tiktoken_cache_dir_windows_localappdata(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.delenv("DATA_GYM_CACHE_DIR", raising=False)
+    monkeypatch.setattr(helpers.sys, "platform", "win32")
+    win_local = tmp_path / "AppData" / "Local"
+    win_local.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(win_local))
+    monkeypatch.setattr(helpers.Path, "home", lambda: tmp_path / "NonExistentHome")
+
+    helpers._ensure_tiktoken_cache_dir()
+    expected = win_local / "tiktoken"
+    assert helpers.os.environ["TIKTOKEN_CACHE_DIR"] == str(expected)
+    assert expected.is_dir()
+

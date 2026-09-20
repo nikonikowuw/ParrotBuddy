@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 import uuid
 from contextlib import suppress
@@ -20,8 +21,33 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 
 
+def _ensure_tiktoken_cache_dir() -> None:
+    """Ensure tiktoken uses a persistent user cache directory across platforms."""
+    if "TIKTOKEN_CACHE_DIR" in os.environ or "DATA_GYM_CACHE_DIR" in os.environ:
+        return
+
+    default_dir = (
+        Path(os.environ["LOCALAPPDATA"]) / "tiktoken"
+        if sys.platform == "win32" and "LOCALAPPDATA" in os.environ
+        else Path.home() / ".cache" / "tiktoken"
+    )
+    candidates = [default_dir, Path.home() / ".pipi" / "cache" / "tiktoken"]
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            os.environ["TIKTOKEN_CACHE_DIR"] = str(candidate)
+            return
+
+    try:
+        default_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["TIKTOKEN_CACHE_DIR"] = str(default_dir)
+    except OSError:
+        pass
+
+
 @lru_cache(maxsize=1)
 def _get_token_encoding() -> Any:
+    _ensure_tiktoken_cache_dir()
     return tiktoken.get_encoding("cl100k_base")
 
 
