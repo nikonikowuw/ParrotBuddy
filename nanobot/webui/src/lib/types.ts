@@ -1144,6 +1144,27 @@ export type InboundEvent =
       detail?: string;
       status?: number;
     }
+  | {
+      event: "skill_uploaded";
+      request_id: string;
+      name: string;
+      updated?: boolean;
+      available?: boolean;
+      unavailable_reason?: string;
+      requirements?: {
+        bins?: string[];
+        env?: string[];
+        missing_bins?: string[];
+        missing_env?: string[];
+      };
+    }
+  | { event: "skill_deleted"; request_id: string; name: string }
+  | {
+      event: "skill_mutation_error";
+      request_id?: string;
+      detail?: string;
+      name?: string;
+    }
   | { event: "error"; chat_id?: string; detail?: string; reason?: string };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.
@@ -1237,6 +1258,14 @@ export type Outbound =
       path: string;
       content_b64: string;
     }
+  | {
+      type: "skill_upload";
+      request_id: string;
+      filename: string;
+      content_b64: string;
+      overwrite?: boolean;
+    }
+  | { type: "skill_delete"; request_id: string; name: string }
   | {
       type: "message";
       chat_id: string;

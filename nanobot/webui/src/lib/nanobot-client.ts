@@ -107,6 +107,31 @@ interface PendingFileSave {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export interface SkillUploadResult {
+  name: string;
+  updated: boolean;
+  available: boolean;
+  unavailable_reason: string;
+  requirements?: {
+    bins?: string[];
+    env?: string[];
+    missing_bins?: string[];
+    missing_env?: string[];
+  };
+}
+
+interface PendingSkillUpload {
+  resolve: (result: SkillUploadResult) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface PendingSkillDeletion {
+  resolve: (name: string) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface PendingSystemCommand {
   resolve: () => void;
   reject: (err: Error) => void;
@@ -158,6 +183,8 @@ export class NanobotClient {
   private pendingNewChat: PendingNewChat | null = null;
   private pendingTranscriptions = new Map<string, PendingTranscription>();
   private pendingFileSaves = new Map<string, PendingFileSave>();
+  private pendingSkillUploads = new Map<string, PendingSkillUpload>();
+  private pendingSkillDeletions = new Map<string, PendingSkillDeletion>();
   private pendingSystemCommands = new Map<string, PendingSystemCommand>();
   // Frames queued while the socket is not yet OPEN
   private sendQueue: Outbound[] = [];
@@ -400,7 +427,48 @@ export class NanobotClient {
     });
   }
 
-  /** Ask the server to create a non-destructive fork before a user-message index. */
+  /** Upload a validated SKILL.md or .skill package through the gateway. */
+  uploadSkill(
+    filename: string,
+    contentBase64: string,
+    options?: { overwrite?: boolean; timeoutMs?: number } | number,
+  ): Promise<SkillUploadResult> {
+    const opts = typeof options === "number" ? { timeoutMs: options } : options ?? {};
+    const requestId = crypto.randomUUID();
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    return new Promise<SkillUploadResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingSkillUploads.delete(requestId);
+        reject(new Error("skill mutation timed out"));
+      }, timeoutMs);
+      this.pendingSkillUploads.set(requestId, { resolve, reject, timer });
+      this.queueSend({
+        type: "skill_upload",
+        request_id: requestId,
+        filename,
+        content_b64: contentBase64,
+        overwrite: opts.overwrite ?? false,
+      });
+    });
+  }
+
+  /** Delete one workspace skill through the gateway. */
+  deleteSkill(name: string, timeoutMs: number = 30_000): Promise<string> {
+    const requestId = crypto.randomUUID();
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingSkillDeletions.delete(requestId);
+        reject(new Error("skill mutation timed out"));
+      }, timeoutMs);
+      this.pendingSkillDeletions.set(requestId, { resolve, reject, timer });
+      this.queueSend({
+        type: "skill_delete",
+        request_id: requestId,
+        name,
+      });
+    });
+  }
+
   forkChat(
     sourceChatId: string,
     beforeUserIndex: number,
@@ -600,6 +668,27 @@ export class NanobotClient {
       return;
     }
 
+    if (parsed.event === "skill_uploaded") {
+      this.resolveSkillUpload(parsed.request_id, {
+        name: parsed.name,
+        updated: Boolean(parsed.updated),
+        available: parsed.available ?? true,
+        unavailable_reason: parsed.unavailable_reason ?? "",
+        requirements: parsed.requirements,
+      });
+      return;
+    }
+
+    if (parsed.event === "skill_deleted") {
+      this.resolveSkillDeletion(parsed.request_id, parsed.name);
+      return;
+    }
+
+    if (parsed.event === "skill_mutation_error") {
+      this.rejectSkillMutation(parsed.request_id, parsed.detail || "error", parsed.name);
+      return;
+    }
+
     if (parsed.event === "session_updated") {
       this.emitSessionUpdate(
         parsed.chat_id,
@@ -691,6 +780,8 @@ export class NanobotClient {
     }
     this.rejectAllTranscriptions("socket closed");
     this.rejectAllFileSaves("socket closed");
+    this.rejectAllSkillUploads("socket closed");
+    this.rejectAllSkillDeletions("socket closed");
     for (const pending of this.pendingSystemCommands.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error("socket closed"));
@@ -786,6 +877,63 @@ export class NanobotClient {
       clearTimeout(pending.timer);
       pending.reject(new Error(detail));
       this.pendingFileSaves.delete(requestId);
+    }
+  }
+
+  private resolveSkillUpload(requestId: string | undefined, result: SkillUploadResult): void {
+    if (!requestId) return;
+    const pending = this.pendingSkillUploads.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingSkillUploads.delete(requestId);
+    pending.resolve(result);
+  }
+
+  private resolveSkillDeletion(requestId: string | undefined, name: string): void {
+    if (!requestId) return;
+    const pending = this.pendingSkillDeletions.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingSkillDeletions.delete(requestId);
+    pending.resolve(name);
+  }
+
+  private rejectSkillMutation(requestId: string | undefined, detail: string, name?: string): void {
+    if (!requestId) {
+      this.rejectAllSkillUploads(detail);
+      this.rejectAllSkillDeletions(detail);
+      return;
+    }
+    const pendingUpload = this.pendingSkillUploads.get(requestId);
+    if (pendingUpload) {
+      clearTimeout(pendingUpload.timer);
+      this.pendingSkillUploads.delete(requestId);
+      const err = new Error(detail) as Error & { skillName?: string };
+      if (name) err.skillName = name;
+      pendingUpload.reject(err);
+      return;
+    }
+    const pendingDeletion = this.pendingSkillDeletions.get(requestId);
+    if (pendingDeletion) {
+      clearTimeout(pendingDeletion.timer);
+      this.pendingSkillDeletions.delete(requestId);
+      pendingDeletion.reject(new Error(detail));
+    }
+  }
+
+  private rejectAllSkillUploads(detail: string): void {
+    for (const [requestId, pending] of this.pendingSkillUploads) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(detail));
+      this.pendingSkillUploads.delete(requestId);
+    }
+  }
+
+  private rejectAllSkillDeletions(detail: string): void {
+    for (const [requestId, pending] of this.pendingSkillDeletions) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(detail));
+      this.pendingSkillDeletions.delete(requestId);
     }
   }
 

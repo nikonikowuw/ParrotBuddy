@@ -588,6 +588,85 @@ describe("NanobotClient", () => {
     await expect(dropped).rejects.toThrow("socket closed");
   });
 
+  it("sends skill mutations and resolves matching completion events", async () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const upload = client.uploadSkill("SKILL.md", "U0tJTEw=", 1_000);
+    const uploadFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    expect(uploadFrame).toMatchObject({
+      type: "skill_upload",
+      filename: "SKILL.md",
+      content_b64: "U0tJTEw=",
+    });
+    lastSocket().fakeMessage({
+      event: "skill_uploaded",
+      request_id: uploadFrame.request_id,
+      name: "demo-skill",
+      updated: false,
+      available: true,
+    });
+    await expect(upload).resolves.toMatchObject({
+      name: "demo-skill",
+      updated: false,
+      available: true,
+    });
+
+    const deletion = client.deleteSkill("demo-skill", 1_000);
+    const deleteFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    expect(deleteFrame).toMatchObject({
+      type: "skill_delete",
+      name: "demo-skill",
+    });
+    lastSocket().fakeMessage({
+      event: "skill_deleted",
+      request_id: deleteFrame.request_id,
+      name: "demo-skill",
+    });
+    await expect(deletion).resolves.toBe("demo-skill");
+  });
+
+  it("rejects skill mutations on stable errors and socket close", async () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const errored = client.deleteSkill("demo-skill", 1_000);
+    const errorFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    lastSocket().fakeMessage({
+      event: "skill_mutation_error",
+      request_id: errorFrame.request_id,
+      detail: "forbidden",
+    });
+    await expect(errored).rejects.toThrow("forbidden");
+
+    const conflictUpload = client.uploadSkill("SKILL.md", "U0tJTEw=", 1_000);
+    const conflictFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    lastSocket().fakeMessage({
+      event: "skill_mutation_error",
+      request_id: conflictFrame.request_id,
+      detail: "conflict",
+      name: "demo-skill",
+    });
+    await expect(conflictUpload).rejects.toMatchObject({
+      message: "conflict",
+      skillName: "demo-skill",
+    });
+
+    const dropped = client.uploadSkill("SKILL.md", "U0tJTEw=", 1_000);
+    lastSocket().close();
+    await expect(dropped).rejects.toThrow("socket closed");
+  });
+
   it("queues sends while connecting and flushes on open", () => {
     const client = new NanobotClient({
       url: "ws://test",

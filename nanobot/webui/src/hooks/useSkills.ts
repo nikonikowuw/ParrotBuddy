@@ -1,20 +1,29 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchSkills } from "@/lib/api";
 import type { SkillSummary } from "@/lib/types";
 
-export function useSkills(token: string): SkillSummary[] {
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
+interface UseSkillsResult {
+  skills: SkillSummary[];
+  refresh: () => Promise<void>;
+}
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchSkills(token)
-      .then(({ skills: nextSkills }) => !cancelled && setSkills(nextSkills))
-      .catch(() => !cancelled && setSkills([]));
-    return () => {
-      cancelled = true;
-    };
+export function useSkills(token: string): UseSkillsResult {
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const requestSequence = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const requestId = ++requestSequence.current;
+    const { skills: nextSkills } = await fetchSkills(token);
+    if (requestId === requestSequence.current) setSkills(nextSkills);
   }, [token]);
 
-  return skills;
+  useEffect(() => {
+    void refresh().catch(() => undefined);
+    return () => {
+      requestSequence.current += 1;
+    };
+  }, [refresh]);
+
+  return { skills, refresh };
 }

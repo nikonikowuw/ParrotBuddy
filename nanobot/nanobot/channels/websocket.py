@@ -64,6 +64,12 @@ from nanobot.webui.http_utils import (
 )
 from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanobot.webui.media_api import strip_out_of_scope_paths
+from nanobot.webui.skills_api import (
+    MAX_SKILL_UPLOAD_BYTES,
+    SkillMutationError,
+    delete_workspace_skill,
+    upload_workspace_skill,
+)
 from nanobot.webui.transcription_ws import webui_transcription_event
 from nanobot.webui.websocket_logging import websockets_server_logger
 from nanobot.webui.workspaces import normalize_lightrag_workspaces
@@ -813,6 +819,14 @@ class WebSocketChannel(BaseChannel):
             event, payload = await self._save_file_event(envelope)
             await self._send_event(connection, event, **payload)
             return
+        if t == "skill_upload":
+            event, payload = await self._skill_upload_event(envelope)
+            await self._send_event(connection, event, **payload)
+            return
+        if t == "skill_delete":
+            event, payload = await self._skill_delete_event(envelope)
+            await self._send_event(connection, event, **payload)
+            return
         if t == "message":
             cid = envelope.get("chat_id")
             content = envelope.get("content")
@@ -1007,6 +1021,91 @@ class WebSocketChannel(BaseChannel):
             self.logger.warning("file save failed for {}: {}", path, exc)
             return "file_save_error", {"request_id": request_id, "detail": "failed"}
         return "file_saved", {"request_id": request_id, "path": saved}
+
+    async def _skill_upload_event(
+        self,
+        envelope: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        """Validate and install one authenticated WebUI workspace skill upload."""
+        request_id = envelope.get("request_id")
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            return "skill_mutation_error", {"detail": "missing_request_id"}
+        filename = envelope.get("filename")
+        if not isinstance(filename, str) or not filename:
+            return "skill_mutation_error", {
+                "request_id": request_id,
+                "detail": "invalid_file",
+            }
+        content_b64 = envelope.get("content_b64")
+        if not isinstance(content_b64, str) or not content_b64:
+            return "skill_mutation_error", {
+                "request_id": request_id,
+                "detail": "missing_content",
+            }
+        max_encoded = ((MAX_SKILL_UPLOAD_BYTES + 2) // 3) * 4
+        if len(content_b64) > max_encoded:
+            return "skill_mutation_error", {
+                "request_id": request_id,
+                "detail": "size",
+            }
+
+        def _decode_and_upload() -> dict[str, Any]:
+            try:
+                content = base64.b64decode(content_b64, validate=True)
+            except (ValueError, binascii.Error):
+                raise SkillMutationError("decode") from None
+            return upload_workspace_skill(
+                self._http_router.skills_workspace_path,
+                filename,
+                content,
+                overwrite=bool(envelope.get("overwrite", False)),
+            )
+
+        try:
+            result = await asyncio.to_thread(_decode_and_upload)
+        except SkillMutationError as exc:
+            payload: dict[str, Any] = {"request_id": request_id, "detail": exc.token}
+            if exc.name:
+                payload["name"] = exc.name
+            return "skill_mutation_error", payload
+        except Exception as exc:
+            self.logger.warning("skill upload failed: {}", exc)
+            return "skill_mutation_error", {"request_id": request_id, "detail": "failed"}
+        return "skill_uploaded", {
+            "request_id": request_id,
+            "name": result["name"],
+            "updated": result.get("updated", False),
+            "available": result.get("available", True),
+            "unavailable_reason": result.get("unavailable_reason", ""),
+            "requirements": result.get("requirements", {}),
+        }
+
+    async def _skill_delete_event(
+        self,
+        envelope: dict[str, Any],
+    ) -> tuple[str, dict[str, Any]]:
+        """Delete one authenticated WebUI workspace skill."""
+        request_id = envelope.get("request_id")
+        if not isinstance(request_id, str) or not request_id or len(request_id) > 128:
+            return "skill_mutation_error", {"detail": "missing_request_id"}
+        name = envelope.get("name")
+        if not isinstance(name, str) or not name:
+            return "skill_mutation_error", {
+                "request_id": request_id,
+                "detail": "invalid_path",
+            }
+        try:
+            deleted_name = await asyncio.to_thread(
+                delete_workspace_skill,
+                self._http_router.skills_workspace_path,
+                name,
+            )
+        except SkillMutationError as exc:
+            return "skill_mutation_error", {"request_id": request_id, "detail": exc.token}
+        except Exception as exc:
+            self.logger.warning("skill deletion failed: {}", exc)
+            return "skill_mutation_error", {"request_id": request_id, "detail": "failed"}
+        return "skill_deleted", {"request_id": request_id, "name": deleted_name}
 
     # -- Outbound WebSocket events -----------------------------------------
 

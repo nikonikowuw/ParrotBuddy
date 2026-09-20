@@ -1,18 +1,203 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { Brain, Check, CircleAlert, KeyRound, Loader2, Terminal } from "lucide-react";
+import {
+  Brain,
+  Check,
+  CircleAlert,
+  FileUp,
+  KeyRound,
+  Loader2,
+  Terminal,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
+import { bufferToBase64 } from "@/lib/binary";
 import { fetchSkillDetail } from "@/lib/api";
 import type { SkillDetail, SkillSummary } from "@/lib/types";
+import type { SkillUploadResult } from "@/lib/nanobot-client";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
-export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
+const MAX_SKILL_UPLOAD_BYTES = 16 * 1024 * 1024;
+const SKILL_ERROR_KEYS: Record<string, string> = {
+  invalid_file: "settings.skills.errors.invalidFile",
+  invalid_path: "settings.skills.errors.invalidPath",
+  invalid_skill: "settings.skills.errors.invalidSkill",
+  conflict: "settings.skills.errors.conflict",
+  forbidden: "settings.skills.errors.forbidden",
+  not_found: "settings.skills.errors.notFound",
+  size: "settings.skills.errors.size",
+  decode: "settings.skills.errors.decode",
+  failed: "settings.skills.errors.failed",
+};
+
+interface PendingOverwrite {
+  file: File;
+  skillName: string;
+}
+
+async function extractSkillName(file: File): Promise<string> {
+  if (file.name.endsWith(".skill")) {
+    return file.name.slice(0, -".skill".length);
+  }
+  if (file.name === "SKILL.md") {
+    try {
+      const text = await file.slice(0, 2048).text();
+      const match = text.match(/^name:\s*([a-z0-9]+(?:-[a-z0-9]+)*)/m);
+      if (match) return match[1];
+    } catch {
+      // ignore
+    }
+  }
+  return file.name;
+}
+
+function skillMutationErrorMessage(error: unknown, t: TFunction): string {
+  const token = error instanceof Error ? error.message : "failed";
+  const key = SKILL_ERROR_KEYS[token] ?? SKILL_ERROR_KEYS.failed;
+  return t(key, { defaultValue: t(SKILL_ERROR_KEYS.failed) });
+}
+
+function getErrorSkillName(error: unknown): string {
+  if (error && typeof error === "object" && "skillName" in error && typeof error.skillName === "string") {
+    return error.skillName;
+  }
+  return "";
+}
+
+function formatUploadSuccessMessage(result: SkillUploadResult, t: TFunction): string {
+  if (!result.available && result.unavailable_reason) {
+    if (result.updated) {
+      return t("settings.skills.uploadSuccessUpdatedWithNotice", {
+        name: result.name,
+        reason: result.unavailable_reason,
+      });
+    }
+    return t("settings.skills.uploadSuccessWithNotice", {
+      name: result.name,
+      reason: result.unavailable_reason,
+    });
+  }
+  if (result.updated) {
+    return t("settings.skills.uploadSuccessUpdated", { name: result.name });
+  }
+  return t("settings.skills.uploadSuccess", { name: result.name });
+}
+
+export interface SkillsCatalogSettingsProps {
+  skills: SkillSummary[];
+  onSkillsChanged?: () => Promise<void>;
+}
+
+export function SkillsCatalogSettings({
+  skills,
+  onSkillsChanged,
+}: SkillsCatalogSettingsProps) {
+  const { client } = useClient();
   const { t } = useTranslation();
   const availableCount = skills.filter((skill) => skill.available).length;
   const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SkillSummary | null>(null);
+  const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwrite | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSuccess, setOperationSuccess] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const triggerRefresh = useCallback(async () => {
+    try {
+      await onSkillsChanged?.();
+    } catch {
+      setOperationError(t("settings.skills.errors.refresh"));
+    }
+  }, [onSkillsChanged, t]);
+
+  const uploadFile = useCallback(
+    async (file: File, overwrite = false) => {
+      setOperationError(null);
+      setOperationSuccess(null);
+      if (file.name !== "SKILL.md" && !file.name.endsWith(".skill")) {
+        setOperationError(t("settings.skills.errors.invalidFile"));
+        return;
+      }
+      if (file.size > MAX_SKILL_UPLOAD_BYTES) {
+        setOperationError(t("settings.skills.errors.size"));
+        return;
+      }
+      setUploading(true);
+      try {
+        const base64 = bufferToBase64(await file.arrayBuffer());
+        const result = await client.uploadSkill(file.name, base64, { overwrite });
+        setPendingOverwrite(null);
+        setOperationSuccess(formatUploadSuccessMessage(result, t));
+        await triggerRefresh();
+      } catch (error) {
+        const token = error instanceof Error ? error.message : "failed";
+        if (token === "conflict") {
+          const derivedName = getErrorSkillName(error) || (await extractSkillName(file));
+          setPendingOverwrite({ file, skillName: derivedName });
+        } else {
+          setOperationSuccess(null);
+          setOperationError(skillMutationErrorMessage(error, t));
+        }
+      } finally {
+        setUploading(false);
+      }
+    },
+    [client, t, triggerRefresh],
+  );
+
+  const handleFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      if (files.length > 1) {
+        setOperationSuccess(null);
+        setOperationError(t("settings.skills.errors.singleFile"));
+        return;
+      }
+      void uploadFile(files[0]);
+    },
+    [t, uploadFile],
+  );
+  const drop = useClipboardAndDrop(handleFiles);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    setOperationError(null);
+    setOperationSuccess(null);
+    try {
+      await client.deleteSkill(pendingDelete.name);
+      const deletedName = pendingDelete.name;
+      setPendingDelete(null);
+      setSelectedSkill(null);
+      setOperationSuccess(t("settings.skills.deleteSuccess", { name: deletedName }));
+      await triggerRefresh();
+    } catch (error) {
+      const msg = skillMutationErrorMessage(error, t);
+      setDeleteError(msg);
+      setOperationError(msg);
+    } finally {
+      setDeleting(false);
+    }
+  }, [client, pendingDelete, t, triggerRefresh]);
 
   return (
     <div className="space-y-7">
@@ -29,6 +214,66 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
             defaultValue: "{{available}} available · {{total}} total",
           })}
         </span>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
+            {t("settings.skills.manageTitle")}
+          </h2>
+          <p className="mt-1 px-1 text-[13px] leading-5 text-muted-foreground">
+            {t("settings.skills.manageDescription")}
+          </p>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".skill,.md"
+          className="sr-only"
+          onChange={(event) => {
+            handleFiles(Array.from(event.currentTarget.files ?? []));
+            event.currentTarget.value = "";
+          }}
+        />
+        <button
+          type="button"
+          disabled={uploading}
+          aria-label={t("settings.skills.uploadDrop")}
+          onClick={() => inputRef.current?.click()}
+          onDragEnter={drop.onDragEnter}
+          onDragOver={drop.onDragOver}
+          onDragLeave={drop.onDragLeave}
+          onDrop={drop.onDrop}
+          className={cn(
+            "flex w-full flex-col items-center justify-center gap-2 rounded-[16px] border border-dashed px-5 py-7 text-center transition-colors",
+            "border-border/70 bg-muted/15 hover:border-primary/50 hover:bg-muted/30",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            drop.isDragging && "border-primary bg-primary/10",
+            uploading && "cursor-wait opacity-70",
+          )}
+        >
+          {uploading ? (
+            <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden />
+          ) : (
+            <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
+          )}
+          <span className="text-[14px] font-medium text-foreground">
+            {uploading ? t("settings.skills.uploading") : t("settings.skills.uploadDrop")}
+          </span>
+          <span className="text-[12px] text-muted-foreground">
+            {t("settings.skills.uploadFormats")}
+          </span>
+        </button>
+        {operationError ? (
+          <p role="alert" className="rounded-[12px] bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+            {operationError}
+          </p>
+        ) : null}
+        {operationSuccess ? (
+          <p role="status" className="rounded-[12px] bg-emerald-500/10 px-3 py-2 text-[13px] text-emerald-700 dark:text-emerald-300">
+            {operationSuccess}
+          </p>
+        ) : null}
       </section>
 
       <section>
@@ -63,18 +308,95 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
         onOpenChange={(open) => {
           if (!open) setSelectedSkill(null);
         }}
+        onRequestDelete={(skill) => {
+          setDeleteError(null);
+          setPendingDelete(skill);
+        }}
       />
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.skills.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.skills.deleteDescription", { name: pendingDelete?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="rounded-[12px] bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t("settings.skills.deleteCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? t("settings.skills.deleting") : t("settings.skills.deleteConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingOverwrite !== null}
+        onOpenChange={(open) => {
+          if (!open && !uploading) setPendingOverwrite(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.skills.overwriteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.skills.overwriteDescription", {
+                name: pendingOverwrite?.skillName ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={uploading}>
+              {t("settings.skills.overwriteCancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={uploading}
+              onClick={(event) => {
+                event.preventDefault();
+                if (pendingOverwrite) {
+                  void uploadFile(pendingOverwrite.file, true);
+                }
+              }}
+            >
+              {uploading ? t("settings.skills.uploading") : t("settings.skills.overwriteConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
+}
+
+interface SkillCatalogRowProps {
+  skill: SkillSummary;
+  onSelect: (skill: SkillSummary) => void;
 }
 
 function SkillCatalogRow({
   skill,
   onSelect,
-}: {
-  skill: SkillSummary;
-  onSelect: (skill: SkillSummary) => void;
-}) {
+}: SkillCatalogRowProps) {
   const { t } = useTranslation();
   const sourceLabel = skillSourceLabel(skill.source, t);
   const StatusIcon = skill.available ? Check : CircleAlert;
@@ -136,15 +458,19 @@ function SkillCatalogRow({
   );
 }
 
+interface SkillDetailSheetProps {
+  skill: SkillSummary | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRequestDelete: (skill: SkillSummary) => void;
+}
+
 function SkillDetailSheet({
   skill,
   open,
   onOpenChange,
-}: {
-  skill: SkillSummary | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+  onRequestDelete,
+}: SkillDetailSheetProps) {
   const { token } = useClient();
   const { t } = useTranslation();
   const [detail, setDetail] = useState<SkillDetail | null>(null);
@@ -251,6 +577,19 @@ function SkillDetailSheet({
               {detail ? <RawInstructionsBlock markdown={detail.raw_markdown} /> : null}
             </div>
           )}
+          {skill.source === "workspace" ? (
+            <div className="mt-8 border-t border-border/45 pt-5">
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full justify-center gap-2"
+                onClick={() => onRequestDelete(skill)}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                {t("settings.skills.deleteAction")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
