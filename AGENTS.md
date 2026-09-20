@@ -46,7 +46,7 @@ pytest tests/                       # full suite (asyncio_mode = "auto")
 ruff check nanobot/                 # lint (never `ruff format` — destroys git blame)
 cd webui && bun run dev             # dev server (proxies to gateway :8765)
 cd webui && bun run build           # outputs to ../nanobot/web/dist (bundled into wheel)
-cd webui && bun test                # frontend tests
+cd webui && bun run test            # frontend tests
 nanobot gateway                     # run the gateway
 ```
 
