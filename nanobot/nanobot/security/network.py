@@ -8,7 +8,7 @@ import re
 import socket
 from contextlib import contextmanager, suppress
 from urllib.parse import urlparse
-from urllib.request import getproxies, proxy_bypass
+from urllib.request import getproxies_environment, proxy_bypass_environment
 
 import httpx
 
@@ -134,7 +134,7 @@ def env_proxy_applies_to_url(url: str) -> bool:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         return False
 
-    proxies = getproxies()
+    proxies = getproxies_environment()
     proxy_url = proxies.get(parsed.scheme) or proxies.get("all")
     if not proxy_url:
         return False
@@ -142,12 +142,12 @@ def env_proxy_applies_to_url(url: str) -> bool:
     host = parsed.hostname
     if parsed.port is not None:
         host = f"[{host}]:{parsed.port}" if ":" in host else f"{host}:{parsed.port}"
-    return not proxy_bypass(host)
+    return not proxy_bypass_environment(host, proxies)
 
 
 def httpx_env_proxy_mounts() -> dict[str, httpx.AsyncBaseTransport | None]:
     """Build HTTPX proxy mounts while leaving direct routes to the base transport."""
-    proxies = getproxies()
+    proxies = getproxies_environment()
     mounts: dict[str, httpx.AsyncBaseTransport | None] = {}
     for scheme in ("http", "https", "all"):
         proxy_url = proxies.get(scheme)
