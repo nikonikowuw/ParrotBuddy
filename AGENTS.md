@@ -2,20 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository layout — two independent subprojects
+## Repository layout — one repository, two vendored subprojects
 
-`ParrotBuddy` is a workspace container, **not a unified codebase**. It holds two self-contained upstream clones, each with its **own git repository** (own branch, remote, `.venv`, and `CLAUDE.md`/`AGENTS.md`):
+`ParrotBuddy` is a **single git repository** (branch `dev`, remote `origin` → `nikonikowuw/ParrotBuddy`) that vendors two upstream projects as ordinary subdirectories. They are not submodules and have no `.git` of their own — every commit, branch, and PR is made from the repository root. Each subproject still keeps its own `.venv` and its own `CLAUDE.md`/`AGENTS.md`:
 
 - **`LightRAG/`** — [HKUDS/LightRAG](https://github.com/HKUDS/LightRAG): a graph-based Retrieval-Augmented Generation (RAG) framework. Python core + React/TypeScript WebUI (`lightrag_webui/`).
 - **`nanobot/`** — [HKUDS/nanobot](https://github.com/HKUDS/nanobot): a lightweight AI agent framework (channels, tools, memory, MCP). Python core + React/TypeScript WebUI (`webui/`).
 
 Read `LightRAG/CLAUDE.md` → `LightRAG/AGENTS.md` and `nanobot/CLAUDE.md` → `nanobot/AGENTS.md` before editing either — those are the authoritative, detailed guides (architecture, pipeline concurrency contract, storage layer, gotchas).
 
-### Implications of the two-repo layout
+### Implications of the vendored layout
 
-- **Git operations target the sub-repo, not the parent.** Make commits, branches, and PRs inside `LightRAG/` or `nanobot/` (the parent repo has no commits and only contains the two untracked subdirectories). PRs for LightRAG target upstream `HKUDS/LightRAG` (this is a fork), not a local fork.
+- **Git operations run from the repository root.** `LightRAG/` and `nanobot/` are tracked directories here, so `git add nanobot/...` and `git commit` are run at the top level. Do not expect a nested repository inside either directory. Upstream remains the reference for `HKUDS/LightRAG` and `HKUDS/nanobot`, but there is no local sub-repo remote.
 - **Each subproject has its own virtualenv.** Activate the venv inside the subproject (`LightRAG/.venv`, `nanobot/.venv`) before running its Python tooling; do not share or install across them.
 - **Never interleave the two projects** — they are separate packages with separate configs, test suites, and lockfiles. A change lives entirely in one of them.
+- **The two projects are deployed together.** `nanobot` is the agent front end; `LightRAG` is the knowledge base it queries. The LightRAG retrieval tool is enabled by default, so a nanobot feature that assumes "no knowledge base" is configured is usually wrong.
 
 ## Commands per subproject
 
