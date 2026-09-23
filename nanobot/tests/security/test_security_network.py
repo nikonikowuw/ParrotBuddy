@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import sys
+import urllib.request
 from unittest.mock import patch
 
 import pytest
 
+from nanobot.security import network
 from nanobot.security.network import (
     configure_ssrf_whitelist,
     contains_internal_url,
@@ -217,9 +220,51 @@ def test_env_proxy_helpers_respect_no_proxy(monkeypatch):
 
     assert env_proxy_applies_to_url("https://example.com/page")
     assert not env_proxy_applies_to_url("http://localhost:8765/mcp")
+    assert not env_proxy_applies_to_url("http://127.0.0.1:8765/mcp")
 
     mounts = httpx_env_proxy_mounts()
     assert any(transport is None for transport in mounts.values())
+    assert any(transport is not None for transport in mounts.values())
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="getproxies_macosx_sysconf only exists on macOS; other platforms "
+    "fall back to the registry or nothing, so the guarded path cannot be exercised",
+)
+def test_env_proxy_helpers_ignore_system_proxy_settings(monkeypatch):
+    """Proxy decisions must come from the environment, not OS system settings.
+
+    ``getproxies()`` returns ``getproxies_environment() or
+    getproxies_macosx_sysconf()``. With no proxy environment variables set the
+    first call yields ``{}``, so the macOS SystemConfiguration fallback kicks
+    in and a user's local HTTP proxy (Clash, Proxyman, Viscosity, ...) would
+    silently route requests the environment never asked to proxy. The sandbox
+    needs an explicit, auditable source of truth, so only environment
+    variables may decide whether a URL is proxied or bypassed.
+
+    ``_clear_proxy_env`` keeps the proxy variables unset here: a non-empty
+    mapping would short-circuit the ``or`` inside ``getproxies()`` and hide the
+    fallback being guarded.
+    """
+    monkeypatch.setattr(
+        urllib.request,
+        "getproxies_macosx_sysconf",
+        lambda: {
+            "https": "http://system-proxy.invalid:9999",
+            "http": "http://system-proxy.invalid:9999",
+        },
+        raising=False,
+    )
+
+    assert network.getproxies_environment() == {}
+    assert not env_proxy_applies_to_url("https://example.com/page")
+    assert httpx_env_proxy_mounts() == {}
+
+    # Once the environment does opt in, the proxy applies again.
+    monkeypatch.setenv("HTTPS_PROXY", "http://env-proxy.example:8080")
+    assert env_proxy_applies_to_url("https://example.com/page")
+    mounts = httpx_env_proxy_mounts()
     assert any(transport is not None for transport in mounts.values())
 
 
