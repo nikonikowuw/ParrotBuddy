@@ -3,7 +3,7 @@ import json
 import pytest
 
 from nanobot.config.loader import load_config
-from nanobot.config.schema import ApiConfig
+from nanobot.config.schema import ApiConfig, Config
 
 
 def test_load_config_missing_file_uses_defaults(tmp_path) -> None:
@@ -174,3 +174,10 @@ def test_load_config_migrates_legacy_lightrag_dedupes_workspaces(tmp_path) -> No
     lightrag = config.tools.lightrag
     assert [server.name for server in lightrag.servers] == ["docs", "research"]
     assert lightrag.default_workspace == "docs"
+
+
+def test_default_config_has_lightrag_enabled_by_default() -> None:
+    config = Config()
+    assert config.tools.lightrag.enabled is True
+    assert config.tools.lightrag.personal.enabled is True
+    assert config.tools.lightrag.personal.api_base == "http://127.0.0.1:9621"

@@ -366,7 +366,7 @@ class LightRagServerConfig(Base):
 
 class LightRagToolConfig(Base):
     """LightRAG retrieval tool configuration (multi-server)."""
-    enabled: bool = False
+    enabled: bool = True
     personal: LightRagPersonalConfig = Field(default_factory=LightRagPersonalConfig)
     enterprise_servers: list[LightRagServerConfig] = Field(
         default_factory=list,
@@ -501,35 +501,41 @@ class LightRagQueryTool(Tool):
         return self._provide_runtime_context
 
     async def _provide_runtime_context(self, request: RequestContext) -> RuntimeContextBlock | None:
-        """Steer the LLM to recall from the active knowledge base this turn."""
+        """Steer the LLM to recall from the active knowledge base this turn.
+
+        Returns ``None`` when no knowledge base is in scope for this turn: like
+        every other runtime-context provider, silence is the correct signal, so
+        an unselected knowledge base must not append guidance to the user turn.
+        A configured-but-disabled integration still speaks up, because the model
+        needs to be told not to reach for a tool the user turned off.
+        """
         if not request.original_user_text:
             return None
 
         config = self._get_live_config()
         if not config.enabled:
-            lines = [
-                "LightRAG recall: disabled (integration disabled in settings). "
-                "Do not call lightrag_query."
-            ]
-        else:
-            scope = self._scope_description(request)
-            if scope:
-                lines = [
-                    f"LightRAG knowledge base active for this turn (scope: {scope}). "
-                    "For questions that could be informed by this indexed knowledge, "
-                    "call the lightrag_query tool first (with the user's question as `query`) before answering.",
-                    "When lightrag_query returns references:",
-                    "- Numbered document links (e.g. `1. [📄Document title](...)`) are source/document citations; keep them as document links.",
-                    "- `Image context:` text is the indexed VLM description of a retrieved image; you may use it as visual understanding without calling another image model.",
-                    "- Unnumbered Markdown image lines (e.g. `![name](/api/lightrag/file/proj/image.png)`) are renderable retrieved media; preserve them when the answer should show the image.",
-                    "- Do not turn a parent document link into an image, and do not add image lines to the document-reference list manually.",
-                ]
-            else:
-                lines = [
-                    "LightRAG recall: disabled (no knowledge base selected). "
+            content = wrap_runtime_context_lines(
+                [
+                    "LightRAG recall: disabled (integration disabled in settings). "
                     "Do not call lightrag_query."
                 ]
+            )
+            return RuntimeContextBlock(source="lightrag", content=content)
 
+        scope = self._scope_description(request)
+        if not scope:
+            return None
+
+        lines = [
+            f"LightRAG knowledge base active for this turn (scope: {scope}). "
+            "For questions that could be informed by this indexed knowledge, "
+            "call the lightrag_query tool first (with the user's question as `query`) before answering.",
+            "When lightrag_query returns references:",
+            "- Numbered document links (e.g. `1. [📄Document title](...)`) are source/document citations; keep them as document links.",
+            "- `Image context:` text is the indexed VLM description of a retrieved image; you may use it as visual understanding without calling another image model.",
+            "- Unnumbered Markdown image lines (e.g. `![name](/api/lightrag/file/proj/image.png)`) are renderable retrieved media; preserve them when the answer should show the image.",
+            "- Do not turn a parent document link into an image, and do not add image lines to the document-reference list manually.",
+        ]
         content = wrap_runtime_context_lines(lines)
         if not content:
             return None

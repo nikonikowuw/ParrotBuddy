@@ -79,11 +79,11 @@ def test_read_only_and_concurrency_safe():
 
 
 def test_enabled_gate_reads_config():
-    assert LightRagQueryTool.enabled(SimpleNamespace(config=ToolsConfig())) is False
+    assert LightRagQueryTool.enabled(SimpleNamespace(config=ToolsConfig())) is True
     ctx = SimpleNamespace(
-        config=ToolsConfig(lightrag=LightRagToolConfig(enabled=True))
+        config=ToolsConfig(lightrag=LightRagToolConfig(enabled=False))
     )
-    assert LightRagQueryTool.enabled(ctx) is True
+    assert LightRagQueryTool.enabled(ctx) is False
 
 
 def test_create_binds_live_config():
@@ -604,25 +604,37 @@ async def test_runtime_context_block_webui_selection_is_directive():
 
 
 @pytest.mark.asyncio
-async def test_runtime_context_block_webui_empty_is_disabled():
+async def test_runtime_context_block_webui_empty_is_silent():
+    """An unselected knowledge base must not annotate the user turn."""
     tool = _tool(
         servers=[_server("a"), _server("b")],
         default_workspace="proj",
     )
     block = await tool._provide_runtime_context(_webui_ctx(None))
-    assert block is not None
-    assert "disabled" in block.content
-    assert "no knowledge base selected" in block.content
-    assert "Do not call lightrag_query" in block.content
+    assert block is None
 
 
 @pytest.mark.asyncio
-async def test_runtime_context_block_stale_selection_is_disabled():
+async def test_runtime_context_block_stale_selection_is_silent():
+    """A selection naming no known server is still an empty selection."""
     tool = _tool(servers=[_server("a")])
     block = await tool._provide_runtime_context(_webui_ctx(["unknown"]))
-    assert block is not None
-    assert "disabled" in block.content
-    assert "unknown" not in block.content
+    assert block is None
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_block_cli_without_default_workspace_is_silent():
+    """No configured default workspace means nothing is in scope for a CLI turn."""
+    tool = _tool(servers=[_server("a"), _server("b")])
+    block = await tool._provide_runtime_context(
+        RequestContext(
+            channel="cli",
+            chat_id="t",
+            metadata={},
+            original_user_text="how do I configure X?",
+        )
+    )
+    assert block is None
 
 
 @pytest.mark.asyncio
