@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
-import type { NanobotClient } from "@/lib/nanobot-client";
+import { SkillMutationError } from "@/lib/nanobot-client";
+import type { NanobotClient, SkillUploadResult } from "@/lib/nanobot-client";
 import type { SkillSummary } from "@/lib/types";
 import { ClientProvider } from "@/providers/ClientProvider";
 
@@ -72,6 +73,32 @@ describe("SkillsCatalogSettings", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Uploaded uploaded-skill.");
   });
 
+  it("exposes the upload busy state to assistive technologies", async () => {
+    let resolveUpload!: (result: SkillUploadResult) => void;
+    const uploadSkill = vi.fn(
+      () =>
+        new Promise<SkillUploadResult>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const { container } = renderCatalog([workspaceSkill], { uploadSkill });
+    const input = container.querySelector('input[type="file"]');
+    const file = new File(["skill"], "SKILL.md", { type: "text/markdown" });
+
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    const dropZone = await screen.findByRole("button", { name: "Uploading skill..." });
+    expect(dropZone).toHaveAttribute("aria-busy", "true");
+
+    resolveUpload({
+      name: "uploaded-skill",
+      updated: false,
+      available: true,
+      unavailable_reason: "",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("Uploaded uploaded-skill.");
+  });
+
   it("shows a localized gateway error without refreshing after a failed upload", async () => {
     const onSkillsChanged = vi.fn().mockResolvedValue(undefined);
     const uploadSkill = vi.fn().mockRejectedValue(new Error("invalid_skill"));
@@ -122,6 +149,30 @@ describe("SkillsCatalogSettings", () => {
     });
     expect(onSkillsChanged).toHaveBeenCalledTimes(1);
     expect(await screen.findByRole("status")).toHaveTextContent("Updated uploaded-skill.");
+  });
+
+  it("prefers the server-reported conflict name over the file frontmatter", async () => {
+    // The gateway resolves the real installed name; the file header may differ
+    // (e.g. a .skill package whose root directory name wins).
+    const uploadSkill = vi
+      .fn()
+      .mockRejectedValueOnce(new SkillMutationError("conflict", "server-side-name"))
+      .mockResolvedValueOnce({
+        name: "server-side-name",
+        updated: true,
+        available: true,
+        unavailable_reason: "",
+      });
+    const { container } = renderCatalog([workspaceSkill], { uploadSkill });
+    const input = container.querySelector('input[type="file"]');
+    const file = new File(["---\nname: frontmatter-name\ndescription: test\n---\n"], "SKILL.md", {
+      type: "text/markdown",
+    });
+
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    const overwriteDialog = await screen.findByRole("alertdialog");
+    expect(overwriteDialog).toHaveTextContent('A workspace skill named "server-side-name" already exists.');
   });
 
   it("accepts a dropped .skill package", async () => {

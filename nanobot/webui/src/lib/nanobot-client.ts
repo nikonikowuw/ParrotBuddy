@@ -120,6 +120,24 @@ export interface SkillUploadResult {
   };
 }
 
+/**
+ * A rejected skill mutation, carrying the gateway's stable error token.
+ *
+ * ``skillName`` is only populated for ``conflict``, where the gateway reports
+ * which existing workspace skill blocked the upload.
+ */
+export class SkillMutationError extends Error {
+  readonly token: string;
+  readonly skillName: string;
+
+  constructor(token: string, skillName = "") {
+    super(token);
+    this.name = "SkillMutationError";
+    this.token = token;
+    this.skillName = skillName;
+  }
+}
+
 interface PendingSkillUpload {
   resolve: (result: SkillUploadResult) => void;
   reject: (err: Error) => void;
@@ -908,23 +926,21 @@ export class NanobotClient {
     if (pendingUpload) {
       clearTimeout(pendingUpload.timer);
       this.pendingSkillUploads.delete(requestId);
-      const err = new Error(detail) as Error & { skillName?: string };
-      if (name) err.skillName = name;
-      pendingUpload.reject(err);
+      pendingUpload.reject(new SkillMutationError(detail, name));
       return;
     }
     const pendingDeletion = this.pendingSkillDeletions.get(requestId);
     if (pendingDeletion) {
       clearTimeout(pendingDeletion.timer);
       this.pendingSkillDeletions.delete(requestId);
-      pendingDeletion.reject(new Error(detail));
+      pendingDeletion.reject(new SkillMutationError(detail, name));
     }
   }
 
   private rejectAllSkillUploads(detail: string): void {
     for (const [requestId, pending] of this.pendingSkillUploads) {
       clearTimeout(pending.timer);
-      pending.reject(new Error(detail));
+      pending.reject(new SkillMutationError(detail));
       this.pendingSkillUploads.delete(requestId);
     }
   }
@@ -932,7 +948,7 @@ export class NanobotClient {
   private rejectAllSkillDeletions(detail: string): void {
     for (const [requestId, pending] of this.pendingSkillDeletions) {
       clearTimeout(pending.timer);
-      pending.reject(new Error(detail));
+      pending.reject(new SkillMutationError(detail));
       this.pendingSkillDeletions.delete(requestId);
     }
   }

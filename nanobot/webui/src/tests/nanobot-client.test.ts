@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { NanobotClient } from "@/lib/nanobot-client";
+import { NanobotClient, SkillMutationError } from "@/lib/nanobot-client";
 
 /**
  * Minimal fake WebSocket implementing the subset NanobotClient touches.
@@ -660,6 +660,19 @@ describe("NanobotClient", () => {
     await expect(conflictUpload).rejects.toMatchObject({
       message: "conflict",
       skillName: "demo-skill",
+    });
+    await expect(conflictUpload).rejects.toBeInstanceOf(SkillMutationError);
+
+    const notFound = client.deleteSkill("demo-skill", 1_000);
+    const notFoundFrame = JSON.parse(lastSocket().sent.at(-1) as string);
+    lastSocket().fakeMessage({
+      event: "skill_mutation_error",
+      request_id: notFoundFrame.request_id,
+      detail: "not_found",
+    });
+    await expect(notFound).rejects.toMatchObject({
+      token: "not_found",
+      skillName: "",
     });
 
     const dropped = client.uploadSkill("SKILL.md", "U0tJTEw=", 1_000);

@@ -25,77 +25,31 @@ import {
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
-import { bufferToBase64 } from "@/lib/binary";
 import { fetchSkillDetail } from "@/lib/api";
+import { bufferToBase64 } from "@/lib/binary";
 import type { SkillDetail, SkillSummary } from "@/lib/types";
-import type { SkillUploadResult } from "@/lib/nanobot-client";
+import {
+  MAX_SKILL_UPLOAD_BYTES,
+  extractSkillName,
+  formatUploadSuccessMessage,
+  isSupportedSkillFile,
+  skillErrorName,
+  skillErrorToken,
+  skillMutationErrorMessage,
+} from "@/lib/skills";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
-const MAX_SKILL_UPLOAD_BYTES = 16 * 1024 * 1024;
-const SKILL_ERROR_KEYS: Record<string, string> = {
-  invalid_file: "settings.skills.errors.invalidFile",
-  invalid_path: "settings.skills.errors.invalidPath",
-  invalid_skill: "settings.skills.errors.invalidSkill",
-  conflict: "settings.skills.errors.conflict",
-  forbidden: "settings.skills.errors.forbidden",
-  not_found: "settings.skills.errors.notFound",
-  size: "settings.skills.errors.size",
-  decode: "settings.skills.errors.decode",
-  failed: "settings.skills.errors.failed",
-};
+const SKILL_DIALOG_CONTENT_CLASS =
+  "w-[min(calc(100vw-2rem),26rem)] gap-0 rounded-[26px] border border-white/70 bg-card/95 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.20)] backdrop-blur-xl sm:rounded-[26px]";
+const SKILL_DIALOG_FOOTER_CLASS =
+  "mt-6 !grid grid-cols-1 gap-3 space-x-0 sm:grid-cols-2 sm:space-x-0";
+const SKILL_DIALOG_CANCEL_CLASS =
+  "mt-0 h-11 w-full min-w-0 rounded-full border-0 bg-muted/70 px-5 text-[15px] font-semibold text-foreground shadow-none hover:bg-muted";
 
 interface PendingOverwrite {
   file: File;
   skillName: string;
-}
-
-async function extractSkillName(file: File): Promise<string> {
-  if (file.name.endsWith(".skill")) {
-    return file.name.slice(0, -".skill".length);
-  }
-  if (file.name === "SKILL.md") {
-    try {
-      const text = await file.slice(0, 2048).text();
-      const match = text.match(/^name:\s*([a-z0-9]+(?:-[a-z0-9]+)*)/m);
-      if (match) return match[1];
-    } catch {
-      // ignore
-    }
-  }
-  return file.name;
-}
-
-function skillMutationErrorMessage(error: unknown, t: TFunction): string {
-  const token = error instanceof Error ? error.message : "failed";
-  const key = SKILL_ERROR_KEYS[token] ?? SKILL_ERROR_KEYS.failed;
-  return t(key, { defaultValue: t(SKILL_ERROR_KEYS.failed) });
-}
-
-function getErrorSkillName(error: unknown): string {
-  if (error && typeof error === "object" && "skillName" in error && typeof error.skillName === "string") {
-    return error.skillName;
-  }
-  return "";
-}
-
-function formatUploadSuccessMessage(result: SkillUploadResult, t: TFunction): string {
-  if (!result.available && result.unavailable_reason) {
-    if (result.updated) {
-      return t("settings.skills.uploadSuccessUpdatedWithNotice", {
-        name: result.name,
-        reason: result.unavailable_reason,
-      });
-    }
-    return t("settings.skills.uploadSuccessWithNotice", {
-      name: result.name,
-      reason: result.unavailable_reason,
-    });
-  }
-  if (result.updated) {
-    return t("settings.skills.uploadSuccessUpdated", { name: result.name });
-  }
-  return t("settings.skills.uploadSuccess", { name: result.name });
 }
 
 export interface SkillsCatalogSettingsProps {
@@ -132,7 +86,7 @@ export function SkillsCatalogSettings({
     async (file: File, overwrite = false) => {
       setOperationError(null);
       setOperationSuccess(null);
-      if (file.name !== "SKILL.md" && !file.name.endsWith(".skill")) {
+      if (!isSupportedSkillFile(file.name)) {
         setOperationError(t("settings.skills.errors.invalidFile"));
         return;
       }
@@ -148,9 +102,8 @@ export function SkillsCatalogSettings({
         setOperationSuccess(formatUploadSuccessMessage(result, t));
         await triggerRefresh();
       } catch (error) {
-        const token = error instanceof Error ? error.message : "failed";
-        if (token === "conflict") {
-          const derivedName = getErrorSkillName(error) || (await extractSkillName(file));
+        if (skillErrorToken(error) === "conflict") {
+          const derivedName = skillErrorName(error) || (await extractSkillName(file));
           setPendingOverwrite({ file, skillName: derivedName });
         } else {
           setOperationSuccess(null);
@@ -218,7 +171,7 @@ export function SkillsCatalogSettings({
 
       <section className="space-y-3">
         <div>
-          <h2 className="px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
+          <h2 className="px-1 text-[13px] font-semibold text-foreground/85">
             {t("settings.skills.manageTitle")}
           </h2>
           <p className="mt-1 px-1 text-[13px] leading-5 text-muted-foreground">
@@ -238,7 +191,10 @@ export function SkillsCatalogSettings({
         <button
           type="button"
           disabled={uploading}
-          aria-label={t("settings.skills.uploadDrop")}
+          aria-label={
+            uploading ? t("settings.skills.uploading") : t("settings.skills.uploadDrop")
+          }
+          aria-busy={uploading}
           onClick={() => inputRef.current?.click()}
           onDragEnter={drop.onDragEnter}
           onDragOver={drop.onDragOver}
@@ -278,7 +234,7 @@ export function SkillsCatalogSettings({
 
       <section>
         <div className="flex items-center justify-between border-b border-border/45 pb-3">
-          <h2 className="mb-2 px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
+          <h2 className="mb-2 px-1 text-[13px] font-semibold text-foreground/85">
             {t("settings.skills.featured", { defaultValue: "Agent skills" })}
           </h2>
           <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
@@ -323,7 +279,7 @@ export function SkillsCatalogSettings({
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={SKILL_DIALOG_CONTENT_CLASS}>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.skills.deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -335,15 +291,17 @@ export function SkillsCatalogSettings({
               {deleteError}
             </p>
           ) : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>{t("settings.skills.deleteCancel")}</AlertDialogCancel>
+          <AlertDialogFooter className={SKILL_DIALOG_FOOTER_CLASS}>
+            <AlertDialogCancel disabled={deleting} className={SKILL_DIALOG_CANCEL_CLASS}>
+              {t("settings.skills.deleteCancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={deleting}
               onClick={(event) => {
                 event.preventDefault();
                 void confirmDelete();
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="h-11 w-full min-w-0 !whitespace-normal rounded-full bg-destructive px-5 text-center text-[15px] font-semibold text-destructive-foreground shadow-[0_10px_25px_rgba(239,68,68,0.28)] hover:bg-destructive/90"
             >
               {deleting ? t("settings.skills.deleting") : t("settings.skills.deleteConfirm")}
             </AlertDialogAction>
@@ -357,7 +315,7 @@ export function SkillsCatalogSettings({
           if (!open && !uploading) setPendingOverwrite(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className={SKILL_DIALOG_CONTENT_CLASS}>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.skills.overwriteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
@@ -366,8 +324,8 @@ export function SkillsCatalogSettings({
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={uploading}>
+          <AlertDialogFooter className={SKILL_DIALOG_FOOTER_CLASS}>
+            <AlertDialogCancel disabled={uploading} className={SKILL_DIALOG_CANCEL_CLASS}>
               {t("settings.skills.overwriteCancel")}
             </AlertDialogCancel>
             <AlertDialogAction
@@ -378,6 +336,7 @@ export function SkillsCatalogSettings({
                   void uploadFile(pendingOverwrite.file, true);
                 }
               }}
+              className="h-11 w-full min-w-0 !whitespace-normal rounded-full bg-primary px-5 text-center text-[15px] font-semibold text-primary-foreground hover:bg-primary/90"
             >
               {uploading ? t("settings.skills.uploading") : t("settings.skills.overwriteConfirm")}
             </AlertDialogAction>
