@@ -17,6 +17,7 @@ from nanobot.webui.gateway_services import build_gateway_services
 from nanobot.webui.skills_api import (
     MAX_SKILL_UPLOAD_BYTES,
     SkillMutationError,
+    _validate_skill_tree,
     delete_workspace_skill,
     upload_workspace_skill,
 )
@@ -171,6 +172,28 @@ def test_upload_supports_utf8_bom_and_homepage(tmp_path: Path) -> None:
     bom_skill = b"\xef\xbb\xbf---\nname: bom-skill\ndescription: UTF8 with BOM\nhomepage: https://example.com\n---\n"
     assert upload_workspace_skill(tmp_path, "SKILL.md", bom_skill)["name"] == "bom-skill"
     assert (tmp_path / "skills/bom-skill/SKILL.md").exists()
+
+
+def test_validate_skill_tree_rejects_symlink_behind_ignored_name(tmp_path: Path) -> None:
+    """Ignored names must not smuggle a symlink past the resource walk.
+
+    The archive extractor filters ignored members before writing, so this
+    guards the ``_validate_skill_tree`` walk itself: a symlink entry whose
+    basename is ignored (``__pycache__``, ``.DS_Store``, ...) must still be
+    rejected rather than skipped.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    for index, ignored_name in enumerate(("__pycache__", ".DS_Store", "node_modules")):
+        root = tmp_path / f"skills/case-{index}"
+        (root / "scripts").mkdir(parents=True)
+        (root / "SKILL.md").write_bytes(_skill(root.name))
+        (root / "scripts" / ignored_name).symlink_to(outside)
+
+        with pytest.raises(SkillMutationError) as exc:
+            _validate_skill_tree(root)
+        assert exc.value.token == "forbidden"
 
 
 def _channel(tmp_path: Path) -> WebSocketChannel:

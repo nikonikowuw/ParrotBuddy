@@ -336,8 +336,6 @@ def _validate_skill_tree(skill_root: Path) -> str:
             if child.name not in _ALLOWED_RESOURCE_DIRS:
                 raise SkillMutationError("invalid_skill")
             for descendant in child.rglob("*"):
-                if _is_ignored_member(descendant.name.split("/")):
-                    continue
                 if descendant.is_symlink():
                     raise SkillMutationError("forbidden")
                 if not descendant.is_file() and not descendant.is_dir():
