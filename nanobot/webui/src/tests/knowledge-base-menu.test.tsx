@@ -43,6 +43,19 @@ describe("KnowledgeBaseMenu", () => {
     expect(onChange).toHaveBeenCalledWith([]);
   });
 
+  it("indicates pressed state when knowledge base is selected", () => {
+    render(
+      <KnowledgeBaseMenu
+        options={["__personal__"]}
+        selected={["__personal__"]}
+        isHero={false}
+        onChange={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole("button", { name: TRIGGER_NAME });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("localizes the label when language changes", async () => {
     const previousLanguage = i18n.language;
     await i18n.changeLanguage("zh-CN");

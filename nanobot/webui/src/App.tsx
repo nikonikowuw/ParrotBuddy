@@ -1058,7 +1058,7 @@ function Shell({
   const [workspaceOverrides, setWorkspaceOverrides] =
     useState<Record<string, WorkspaceScopePayload>>({});
   // LightRAG knowledge-base selection — per-chat (mirrors workspaceScope plumbing).
-  const [draftKnowledgeBases, setDraftKnowledgeBases] = useState<string[]>([]);
+  const [draftKnowledgeBases, setDraftKnowledgeBases] = useState<string[] | null>(null);
   const [knowledgeBasesOverrides, setKnowledgeBasesOverrides] =
     useState<Record<string, string[]>>({});
   const [pendingComposerDraftText, setPendingComposerDraftText] = useState<string | null>(null);
@@ -1189,6 +1189,15 @@ function Shell({
     workspaceOverrides,
     workspaces?.default_scope,
   ]);
+  const defaultKnowledgeBases = useMemo<string[]>(() => {
+    const lightrag = settingsSnapshot?.lightrag;
+    if (lightrag?.enabled === false) return [];
+    if (lightrag?.default_workspace) return [lightrag.default_workspace];
+    if (lightrag?.personal?.enabled !== false) return ["__personal__"];
+    const servers = lightrag?.enterprise_servers ?? lightrag?.servers ?? [];
+    return servers[0]?.name ? [servers[0].name] : [];
+  }, [settingsSnapshot?.lightrag]);
+
   const activeKnowledgeBases = useMemo<string[]>(() => {
     if (activeChatId && knowledgeBasesOverrides[activeChatId]) {
       return knowledgeBasesOverrides[activeChatId];
@@ -1196,10 +1205,11 @@ function Shell({
     if (activeSession?.lightragWorkspaces && activeSession.lightragWorkspaces.length > 0) {
       return activeSession.lightragWorkspaces;
     }
-    return draftKnowledgeBases;
+    return draftKnowledgeBases ?? defaultKnowledgeBases;
   }, [
     activeChatId,
     activeSession?.lightragWorkspaces,
+    defaultKnowledgeBases,
     draftKnowledgeBases,
     knowledgeBasesOverrides,
   ]);
@@ -1533,7 +1543,7 @@ function Shell({
     setPendingComposerDraftText(null);
     navigate(defaultShellRoute());
     setDraftWorkspaceScope(null);
-    setDraftKnowledgeBases([]);
+    setDraftKnowledgeBases(null);
     setWorkspaceError(null);
     setSessionSearchOpen(false);
     setMobileSidebarOpen(false);
@@ -1612,7 +1622,7 @@ function Shell({
       } else {
         setDraftWorkspaceScope(null);
       }
-      setDraftKnowledgeBases(selected?.lightragWorkspaces ?? []);
+      setDraftKnowledgeBases(selected?.lightragWorkspaces ?? null);
       setWorkspaceError(null);
       navigate({ view: "chat", activeKey: key, settingsSection: "overview" });
       setMobileSidebarOpen(false);

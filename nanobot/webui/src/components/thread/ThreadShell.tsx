@@ -535,7 +535,8 @@ export function ThreadShell({
     }
     return options;
   }, [lightragSettings]);
-  const knowledgeBaseEnabled = !!lightragSettings?.enabled;
+  const knowledgeBaseEnabled =
+    lightragSettings?.enabled !== false && knowledgeBaseOptions.length > 0;
   const personalKnowledgeBaseName = lightragSettings?.personal?.name;
 
   const refreshModelSettings = useCallback(async () => {
